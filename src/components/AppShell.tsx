@@ -6,7 +6,7 @@ type NavItem = {
 };
 
 const nav: NavItem[] = [
-  { href: "/matches#grupos", label: "Grupos" },
+  { href: "/groups", label: "Grupos" },
   { href: "/matches", label: "Partidos" },
   { href: "/leagues", label: "Ligas" },
   { href: "/leaderboard", label: "Ranking" },

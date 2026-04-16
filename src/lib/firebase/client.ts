@@ -12,21 +12,23 @@ const firebaseConfig = {
 };
 
 function assertFirebaseConfig() {
-  const required = [
-    "NEXT_PUBLIC_FIREBASE_API_KEY",
-    "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
-    "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
-    "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
-    "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
-    "NEXT_PUBLIC_FIREBASE_APP_ID",
-  ] as const;
+  // IMPORTANT: In Next.js client bundles, only static `process.env.NEXT_PUBLIC_*`
+  // references can be inlined at build time. Dynamic access like `process.env[key]`
+  // will always be undefined in the browser.
+  const missing: string[] = [];
+  if (!firebaseConfig.apiKey) missing.push("NEXT_PUBLIC_FIREBASE_API_KEY");
+  if (!firebaseConfig.authDomain) missing.push("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN");
+  if (!firebaseConfig.projectId) missing.push("NEXT_PUBLIC_FIREBASE_PROJECT_ID");
+  if (!firebaseConfig.storageBucket) missing.push("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET");
+  if (!firebaseConfig.messagingSenderId) missing.push("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID");
+  if (!firebaseConfig.appId) missing.push("NEXT_PUBLIC_FIREBASE_APP_ID");
 
-  for (const key of required) {
-    if (!process.env[key]) {
-      throw new Error(
-        `Missing ${key}. Create a .env.local (see .env.example) and restart the dev server.`
-      );
-    }
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing ${missing.join(
+        ", "
+      )}. Create a .env.local (see .env.example) and restart the dev server.`
+    );
   }
 }
 

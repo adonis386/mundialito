@@ -16,6 +16,7 @@ out/
 # Firebase Functions
 functions/node_modules/
 functions/lib/
+functions/serviceAccountKey.json
 
 # Logs / OS
 *.log

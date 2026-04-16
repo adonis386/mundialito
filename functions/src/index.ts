@@ -8,6 +8,7 @@ import { logger } from "firebase-functions";
 
 import { TOURNAMENT_ID, firestorePaths } from "./firestorePaths.js";
 import { scoreMatch, type ScoringConfig, type SoccerScore } from "./scoring.js";
+import { SEED_MATCHDAYS, toTimestampUtc } from "./seedData.js";
 
 initializeApp();
 const db = getFirestore();
@@ -18,6 +19,11 @@ type MasterMatchDoc = {
   version: number;
   kickoffAt: Timestamp;
 };
+
+function isEmulator() {
+  // Present when running Functions emulator.
+  return Boolean(process.env.FUNCTIONS_EMULATOR);
+}
 
 type PickDoc = {
   matchId: string;
@@ -44,14 +50,15 @@ async function getScoringConfig(): Promise<ScoringConfig> {
   const data = snap.data() as Partial<ScoringConfig> | undefined;
 
   if (!data?.mode || !data?.points) {
-    return { mode: "hybrid", points: { correctResult: 3, exactScoreBonus: 2 } };
+    return { mode: "hybrid", points: { correctResult: 3, correctDraw: 4, exactScoreBonus: 3 } };
   }
 
   return {
     mode: data.mode,
     points: {
       correctResult: Number(data.points.correctResult ?? 3),
-      exactScoreBonus: Number(data.points.exactScoreBonus ?? 2),
+      correctDraw: Number((data.points as any).correctDraw ?? 4),
+      exactScoreBonus: Number(data.points.exactScoreBonus ?? 3),
     },
   };
 }
@@ -85,6 +92,52 @@ export const joinLeague = onCall(async (req) => {
   );
 
   return { ok: true };
+});
+
+export const seedMasterMatches = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+
+  const isAdmin = req.auth.token?.admin === true;
+  if (!isAdmin && !isEmulator()) {
+    throw new HttpsError("permission-denied", "Solo admin puede ejecutar el seeding.");
+  }
+
+  const { matchday, overwrite } = (req.data ?? {}) as {
+    matchday?: 1 | 2 | 3;
+    overwrite?: boolean;
+  };
+
+  const days: (1 | 2 | 3)[] = matchday ? [matchday] : [1, 2, 3];
+  const now = Timestamp.now();
+
+  let written = 0;
+  for (const day of days) {
+    for (const item of SEED_MATCHDAYS[day]) {
+      const ref = db.doc(firestorePaths.masterMatchDoc(item.matchId));
+      const kickoffAt = toTimestampUtc(item.kickoffAt);
+
+      await db.runTransaction(async (tx) => {
+        const prev = await tx.get(ref);
+        if (prev.exists && !overwrite) return;
+
+        tx.set(
+          ref,
+          {
+            status: "scheduled",
+            version: 1,
+            kickoffAt,
+            updatedAt: now,
+            updatedBy: req.auth?.uid ?? "seed",
+          } as MasterMatchDoc & { updatedAt: Timestamp; updatedBy: string },
+          { merge: overwrite ? false : true }
+        );
+
+        written += 1;
+      });
+    }
+  }
+
+  return { ok: true, written, days };
 });
 
 export const onMasterMatchWritten = onDocumentWritten(

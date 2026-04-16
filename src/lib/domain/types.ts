@@ -56,7 +56,10 @@ export type ScoringMode = "exactScore" | "resultOnly" | "hybrid";
 export type ScoringConfig = {
   mode: ScoringMode;
   points: {
+    /** Puntos por acertar ganador (home/away) */
     correctResult: number;
+    /** Puntos por acertar empate (draw) */
+    correctDraw: number;
     exactScoreBonus: number;
   };
   updatedAt: unknown; // Firestore Timestamp

@@ -31,10 +31,16 @@ export function scoreMatch(params: {
 
   const correctResult = isCorrectResult(prediction, finalScore);
   const exactScore = isExactScore(prediction, finalScore);
+  const isDraw = getOutcome(finalScore) === "draw";
+  const resultPoints = correctResult
+    ? isDraw
+      ? config.points.correctDraw
+      : config.points.correctResult
+    : 0;
 
   if (config.mode === "resultOnly") {
     return {
-      points: correctResult ? config.points.correctResult : 0,
+      points: resultPoints,
       correctResult,
       exactScore,
     };
@@ -42,7 +48,7 @@ export function scoreMatch(params: {
 
   if (config.mode === "exactScore") {
     return {
-      points: exactScore ? config.points.correctResult + config.points.exactScoreBonus : 0,
+      points: exactScore ? resultPoints + config.points.exactScoreBonus : 0,
       correctResult,
       exactScore,
     };
@@ -51,7 +57,7 @@ export function scoreMatch(params: {
   // hybrid
   return {
     points:
-      (correctResult ? config.points.correctResult : 0) +
+      resultPoints +
       (exactScore ? config.points.exactScoreBonus : 0),
     correctResult,
     exactScore,

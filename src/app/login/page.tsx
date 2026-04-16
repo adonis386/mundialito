@@ -1,6 +1,36 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup } from "firebase/auth";
+
+import { firebaseAuth } from "@/lib/firebase/client";
 
 export default function LoginPage() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(firebaseAuth, (u) => {
+      setUserEmail(u?.email ?? null);
+    });
+    return () => unsub();
+  }, []);
+
+  async function handleGoogle() {
+    setError(null);
+    setBusy(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(firebaseAuth, provider);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error iniciando sesión.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-md">
       <header className="mb-6">
@@ -11,24 +41,32 @@ export default function LoginPage() {
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-700">
-          Esta pantalla es un placeholder: el siguiente paso es conectar Firebase Auth.
-        </p>
+        {userEmail ? (
+          <p className="text-sm text-slate-700">
+            Sesión activa como <span className="font-semibold text-slate-900">{userEmail}</span>.
+          </p>
+        ) : (
+          <p className="text-sm text-slate-700">Entra con Google para guardar tus picks y participar en rankings.</p>
+        )}
 
         <div className="mt-5 flex flex-col gap-2">
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+            onClick={handleGoogle}
+            disabled={busy}
+            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
           >
-            Continuar con Google
+            {busy ? "Entrando..." : "Continuar con Google"}
           </button>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
-          >
-            Entrar con email
-          </button>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            El panel <span className="font-semibold">Admin</span> usa email/contraseña (sin Google).
+          </div>
         </div>
+
+        {error ? (
+          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+        ) : null}
 
         <p className="mt-5 text-xs text-slate-500">
           Al continuar aceptas las reglas de tu liga.{" "}
