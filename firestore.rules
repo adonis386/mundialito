@@ -1,0 +1,103 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isLeagueMember(leagueId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid));
+    }
+
+    // -------------------------
+    // Master (fuente de verdad)
+    // -------------------------
+    match /tournaments/{tournamentId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /matches/{matchId} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    match /scoring/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------------
+    // Users + Picks
+    // ---------------
+    match /users/{uid} {
+      allow read, create, update, delete: if isSelf(uid);
+
+      match /picks/{matchId} {
+        allow read: if isSelf(uid);
+
+        allow create, update, delete: if isSelf(uid)
+          && request.resource.data.matchId == matchId
+          && request.resource.data.prediction.home is int
+          && request.resource.data.prediction.away is int
+          && request.resource.data.prediction.home >= 0
+          && request.resource.data.prediction.away >= 0
+          && request.time < get(/databases/$(database)/documents/tournaments/2026/matches/$(matchId)).data.kickoffAt;
+      }
+
+      // Server-only (Functions/Admin SDK) writes
+      match /matchPoints/{matchId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+    }
+
+    match /userStats/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /leaderboards/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ----------------
+    // Leagues privadas
+    // ----------------
+    match /leagues/{leagueId} {
+      allow create: if isSignedIn();
+      allow read: if isLeagueMember(leagueId);
+
+      // Solo owner/admin deberían editar datos sensibles (incl. joinCodeHash)
+      allow update, delete: if isLeagueMember(leagueId)
+        && (get(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)).data.role in ["owner", "admin"]);
+
+      match /members/{memberUid} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false; // altas/bajas vía Cloud Functions/Admin
+      }
+
+      match /stats/{memberUid} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+
+      match /leaderboards/{docId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if false;
+      }
+    }
+  }
+}
+
