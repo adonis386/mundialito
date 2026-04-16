@@ -32,7 +32,11 @@ function assertFirebaseConfig() {
   }
 }
 
-assertFirebaseConfig();
+// During `next build`, Next may execute modules on the server while prerendering.
+// We only hard-fail in the browser runtime, where the app truly needs the config.
+if (typeof window !== "undefined") {
+  assertFirebaseConfig();
+}
 
 export const firebaseApp = getApps().length ? getApps()[0]! : initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(firebaseApp);
