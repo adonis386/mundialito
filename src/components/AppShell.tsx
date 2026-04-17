@@ -1,4 +1,10 @@
+"use client";
+
 import Link from "next/link";
+import { Shield } from "lucide-react";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { firebaseAuth } from "@/lib/firebase/client";
 
 type NavItem = {
   href: string;
@@ -13,8 +19,17 @@ const nav: NavItem[] = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(firebaseAuth, (u) => {
+      setUserEmail(u?.email ?? null);
+    });
+    return () => unsub();
+  }, []);
+
   return (
-    <div className="min-h-dvh bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-dvh bg-[#f9f9f9]">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:shadow"
@@ -22,36 +37,58 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Saltar a contenido principal
       </a>
 
-      <header className="border-b border-slate-200/60 bg-white/70 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="text-sm font-semibold text-slate-900">
-              Quiniela 2026
+      <header className="sticky top-0 z-40 bg-[#f9f9f9]/80 backdrop-blur">
+        {/* Color line */}
+        <div className="h-1 w-full bg-gradient-to-r from-[#3c0007] via-[#630012] to-[#096c4b]" />
+
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <Link href="/" className="truncate text-sm font-black italic tracking-tighter text-[#1a1c1c]">
+              MUNDIALITO 2026
             </Link>
-            <span className="hidden text-xs text-slate-500 sm:inline">Matriz master + ligas</span>
+            <span className="hidden items-center gap-1 rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-[#45464f] shadow-sm sm:inline-flex">
+              <Shield className="h-3.5 w-3.5 text-[#3c0007]" aria-hidden="true" />
+              Matriz master
+            </span>
           </div>
 
-          <nav aria-label="Navegación principal" className="flex items-center gap-1">
+          <nav aria-label="Navegación principal" className="flex flex-wrap items-center justify-end gap-1">
             {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+                className="rounded-full bg-white/60 px-3 py-2 text-sm font-semibold text-[#1a1c1c] shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/15"
               >
                 {item.label}
               </Link>
             ))}
-            <Link
-              href="/login"
-              className="ml-1 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
-            >
-              Entrar
-            </Link>
+
+            {userEmail ? (
+              <div className="ml-1 flex items-center gap-2">
+                <span className="hidden max-w-[180px] truncate rounded-full bg-white/80 px-3 py-2 text-xs font-semibold text-[#45464f] shadow-sm sm:inline-block">
+                  {userEmail}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => signOut(firebaseAuth)}
+                  className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-[#1a1c1c] hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/15"
+                >
+                  Cerrar sesión
+                </button>
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="ml-1 rounded-full bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-[#3c0007]/10 transition-opacity hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/20"
+              >
+                Entrar
+              </Link>
+            )}
           </nav>
         </div>
       </header>
 
-      <main id="main" className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6">
+      <main id="main" className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
         {children}
       </main>
     </div>

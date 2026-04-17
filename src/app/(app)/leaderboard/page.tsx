@@ -8,8 +8,7 @@ export default function LeaderboardPage() {
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900">Ranking global</h1>
         <p className="text-sm text-slate-700">
-          Tabla materializada para lectura rápida. Se recalcula cuando se finaliza un partido
-          en la matriz master.
+          Tabla materializada para lectura rápida. Se recalcula cuando se finaliza un partido en la matriz master.
         </p>
       </header>
 

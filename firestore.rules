@@ -60,6 +60,12 @@ service cloud.firestore {
         allow read: if isSelf(uid);
         allow write: if false;
       }
+
+      // Fast path for listing "Mis ligas" in the UI.
+      match /leagueMemberships/{leagueId} {
+        allow read: if isSelf(uid);
+        allow write: if false; // altas/bajas vía Cloud Functions/Admin
+      }
     }
 
     match /userStats/{uid} {

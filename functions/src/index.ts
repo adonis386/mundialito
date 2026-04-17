@@ -63,35 +63,168 @@ async function getScoringConfig(): Promise<ScoringConfig> {
   };
 }
 
+function randomJoinCode(length = 8) {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < length; i += 1) {
+    const idx = Math.floor(Math.random() * alphabet.length);
+    out += alphabet[idx];
+  }
+  return `${out.slice(0, 4)}-${out.slice(4)}`;
+}
+
+export const createLeague = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+
+  const { name } = (req.data ?? {}) as { name?: string };
+  const trimmed = (name ?? "").trim();
+  if (trimmed.length < 3 || trimmed.length > 80) {
+    throw new HttpsError("invalid-argument", "Nombre de liga inválido.");
+  }
+
+  const ownerUid = req.auth.uid;
+  const ownerDisplayName = String((req.auth.token as any)?.name ?? "").trim() || null;
+  const ownerEmail = String((req.auth.token as any)?.email ?? "").trim() || null;
+  const leagueRef = db.collection("leagues").doc();
+  const leagueId = leagueRef.id;
+  const joinCode = randomJoinCode();
+  const now = Timestamp.now();
+
+  await db.runTransaction(async (tx) => {
+    tx.set(leagueRef, {
+      name: trimmed,
+      ownerUid,
+      visibility: "private",
+      joinCode,
+      joinCodeHash: sha256(joinCode),
+      createdAt: now,
+      membersCount: 1,
+    });
+
+    const memberRef = db.doc(firestorePaths.leagueMemberDoc(leagueId, ownerUid));
+    tx.set(memberRef, {
+      uid: ownerUid,
+      displayName: ownerDisplayName,
+      email: ownerEmail,
+      role: "owner",
+      joinedAt: now,
+    });
+
+    const membershipRef = db.doc(`users/${ownerUid}/leagueMemberships/${leagueId}`);
+    tx.set(membershipRef, {
+      leagueId,
+      name: trimmed,
+      role: "owner",
+      displayName: ownerDisplayName,
+      joinedAt: now,
+    });
+  });
+
+  return { ok: true, leagueId, joinCode };
+});
+
+export const regenerateLeagueJoinCode = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const { leagueId } = (req.data ?? {}) as { leagueId?: string };
+  if (!leagueId) throw new HttpsError("invalid-argument", "Faltan datos.");
+
+  const uid = req.auth.uid;
+  const leagueRef = db.doc(firestorePaths.leagueDoc(leagueId));
+  const memberRef = db.doc(firestorePaths.leagueMemberDoc(leagueId, uid));
+
+  const joinCode = randomJoinCode();
+  await db.runTransaction(async (tx) => {
+    const memberSnap = await tx.get(memberRef);
+    if (!memberSnap.exists) throw new HttpsError("permission-denied", "No eres miembro de esta liga.");
+    const role = String((memberSnap.data() as any)?.role ?? "member");
+    if (role !== "owner" && role !== "admin") throw new HttpsError("permission-denied", "Solo el owner puede regenerar el código.");
+
+    tx.set(
+      leagueRef,
+      {
+        joinCode,
+        joinCodeHash: sha256(joinCode),
+        updatedAt: Timestamp.now(),
+      },
+      { merge: true }
+    );
+  });
+
+  return { ok: true, joinCode };
+});
+
 export const joinLeague = onCall(async (req) => {
   if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
 
-  const { leagueId, joinCode } = (req.data ?? {}) as { leagueId?: string; joinCode?: string };
-  if (!leagueId || !joinCode) throw new HttpsError("invalid-argument", "Faltan datos.");
+  const { leagueId: maybeLeagueId, joinCode } = (req.data ?? {}) as { leagueId?: string; joinCode?: string };
+  const normalizedCode = (joinCode ?? "").trim().toUpperCase();
+  if (!normalizedCode) throw new HttpsError("invalid-argument", "Faltan datos.");
+
+  // Preferred: join only with code (no need to know leagueId).
+  let leagueId = maybeLeagueId?.trim();
+  if (!leagueId) {
+    const hash = sha256(normalizedCode);
+    const leaguesSnap = await db
+      .collection("leagues")
+      .where("visibility", "==", "private")
+      .where("joinCodeHash", "==", hash)
+      .limit(2)
+      .get();
+
+    if (leaguesSnap.empty) throw new HttpsError("permission-denied", "Código inválido.");
+    if (leaguesSnap.docs.length > 1) throw new HttpsError("failed-precondition", "Código duplicado. Contacta soporte.");
+    leagueId = leaguesSnap.docs[0]!.id;
+  }
 
   const leagueRef = db.doc(firestorePaths.leagueDoc(leagueId));
-  const leagueSnap = await leagueRef.get();
-  if (!leagueSnap.exists) throw new HttpsError("not-found", "Liga no existe.");
+  const uid = req.auth.uid;
+  const displayName = String((req.auth.token as any)?.name ?? "").trim() || null;
+  const email = String((req.auth.token as any)?.email ?? "").trim() || null;
+  const now = Timestamp.now();
 
-  const league = leagueSnap.data() as { joinCodeHash?: string; visibility?: string };
-  if (league.visibility !== "private") {
-    throw new HttpsError("failed-precondition", "Esta liga no admite uniones por código.");
-  }
+  const result = await db.runTransaction(async (tx) => {
+    const leagueSnap = await tx.get(leagueRef);
+    if (!leagueSnap.exists) throw new HttpsError("not-found", "Liga no existe.");
 
-  if (!league.joinCodeHash || sha256(joinCode) !== league.joinCodeHash) {
-    throw new HttpsError("permission-denied", "Código inválido.");
-  }
+    const league = leagueSnap.data() as { joinCodeHash?: string; visibility?: string; name?: string };
+    if (league.visibility !== "private") {
+      throw new HttpsError("failed-precondition", "Esta liga no admite uniones por código.");
+    }
 
-  const memberRef = db.doc(firestorePaths.leagueMemberDoc(leagueId, req.auth.uid));
-  await memberRef.set(
-    {
-      role: "member",
-      joinedAt: Timestamp.now(),
-    },
-    { merge: false }
-  );
+    // Back-compat: if caller still sends leagueId, validate code hash too.
+    if (maybeLeagueId?.trim()) {
+      if (!league.joinCodeHash || sha256(normalizedCode) !== league.joinCodeHash) {
+        throw new HttpsError("permission-denied", "Código inválido.");
+      }
+    }
 
-  return { ok: true };
+    const memberRef = db.doc(firestorePaths.leagueMemberDoc(leagueId!, uid));
+    const memberSnap = await tx.get(memberRef);
+    const isNew = !memberSnap.exists;
+
+    if (isNew) {
+      tx.set(memberRef, { uid, displayName, email, role: "member", joinedAt: now }, { merge: false });
+      tx.set(
+        leagueRef,
+        { membersCount: FieldValue.increment(1) },
+        { merge: true }
+      );
+    }
+
+    const membershipRef = db.doc(`users/${uid}/leagueMemberships/${leagueId}`);
+    tx.set(
+      membershipRef,
+      { leagueId, name: String(league.name ?? "Liga"), role: isNew ? "member" : (memberSnap.data() as any)?.role ?? "member", displayName, joinedAt: now },
+      { merge: true }
+    );
+
+    return { leagueId, leagueName: String(league.name ?? "Liga"), isNew };
+  });
+
+  // Ensure the league leaderboard exists/refreshes after joins.
+  await recomputeLeagueLeaderboard(result.leagueId, 0);
+
+  return { ok: true, leagueId: result.leagueId, leagueName: result.leagueName, joined: result.isNew };
 });
 
 export const seedMasterMatches = onCall(async (req) => {

@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-} from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import {
   collection,
   doc,
@@ -86,9 +82,7 @@ export default function AdminPage() {
   }, [matchday]);
 
   const [docsById, setDocsById] = useState<Record<string, MasterMatchDoc>>({});
-  const [draftById, setDraftById] = useState<
-    Record<string, { status: MatchStatus; home: string; away: string }>
-  >({});
+  const [draftById, setDraftById] = useState<Record<string, { status: MatchStatus; home: string; away: string }>>({});
   const [loadingIds, setLoadingIds] = useState<Record<string, boolean>>({});
   const [savingIds, setSavingIds] = useState<Record<string, boolean>>({});
   const [rowError, setRowError] = useState<Record<string, string | null>>({});
@@ -165,9 +159,7 @@ export default function AdminPage() {
             return next;
           });
         },
-        (err) => {
-          setGlobalMsg(err?.message ?? "Error escuchando cambios en tiempo real.");
-        }
+        (err) => setGlobalMsg(err?.message ?? "Error escuchando cambios en tiempo real.")
       );
     });
 
@@ -187,7 +179,6 @@ export default function AdminPage() {
         setAuthError("Este panel solo permite el correo admin configurado.");
         return;
       }
-
       await signInWithEmailAndPassword(firebaseAuth, normalized, password);
     } catch (e) {
       setAuthError(e instanceof Error ? e.message : "Error iniciando sesión.");
@@ -207,9 +198,7 @@ export default function AdminPage() {
     try {
       const ref = doc(firestore, "tournaments", "2026", "matches", matchId);
       const snap = await getDoc(ref);
-      const data = (snap.exists() ? (snap.data() as MasterMatchDoc) : undefined) ?? {
-        status: "scheduled" as const,
-      };
+      const data = (snap.exists() ? (snap.data() as MasterMatchDoc) : undefined) ?? { status: "scheduled" as const };
 
       setDocsById((s) => ({ ...s, [matchId]: data }));
       setRowError((s) => ({ ...s, [matchId]: null }));
@@ -236,21 +225,12 @@ export default function AdminPage() {
       if (!draft) return;
 
       const status = draft.status;
-      const score =
-        status === "final"
-          ? { home: clampNonNegInt(draft.home), away: clampNonNegInt(draft.away) }
-          : undefined;
+      const score = status === "final" ? { home: clampNonNegInt(draft.home), away: clampNonNegInt(draft.away) } : undefined;
 
       const ref = doc(firestore, "tournaments", "2026", "matches", matchId);
-
       await setDoc(
         ref,
-        {
-          status,
-          ...(score ? { score } : {}),
-          updatedAt: serverTimestamp(),
-          updatedBy: user.uid,
-        },
+        { status, ...(score ? { score } : {}), updatedAt: serverTimestamp(), updatedBy: user.uid },
         { merge: true }
       );
 
@@ -269,26 +249,22 @@ export default function AdminPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold tracking-tight text-slate-900">Admin</h1>
-        <p className="text-sm text-slate-700">
-          Panel para cargar resultados oficiales en la matriz master (Firestore).
-        </p>
+        <p className="text-sm text-slate-700">Panel para cargar resultados oficiales en la matriz master (Firestore).</p>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-2xl bg-white p-5 shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
         {authLoading ? (
           <div className="text-sm text-slate-700">Cargando sesión...</div>
         ) : user ? (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-slate-700">
               <div className="font-semibold text-slate-900">{user.displayName ?? user.email ?? user.uid}</div>
-              <div className="text-xs text-slate-500">
-                {isAdmin ? "Admin: sí" : "Admin: no (necesitas custom claim admin=true)"}
-              </div>
+              <div className="text-xs text-slate-500">{isAdmin ? "Admin: sí" : "Admin: no (necesitas custom claim admin=true)"}</div>
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50"
+              className="inline-flex items-center justify-center rounded-full bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-200"
             >
               Cerrar sesión
             </button>
@@ -299,7 +275,7 @@ export default function AdminPage() {
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Correo
                 <input
-                  className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+                  className="h-10 w-full rounded-xl bg-slate-50 px-3 text-sm text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
@@ -309,7 +285,7 @@ export default function AdminPage() {
               <label className="grid gap-1 text-sm font-medium text-slate-700">
                 Contraseña
                 <input
-                  className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/20"
+                  className="h-10 w-full rounded-xl bg-slate-50 px-3 text-sm text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   type="password"
@@ -322,40 +298,38 @@ export default function AdminPage() {
               type="button"
               onClick={handleLogin}
               disabled={loginBusy}
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="inline-flex h-10 items-center justify-center rounded-full bg-gradient-to-br from-[#3c0007] to-[#630012] px-5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loginBusy ? "Entrando..." : "Entrar"}
             </button>
 
             <p className="text-xs text-slate-500 sm:col-span-2">
-              Este panel solo permite el correo <span className="font-semibold">{allowedEmail}</span>. Además, Firestore
-              requiere el claim <span className="font-semibold">admin=true</span>.
+              Este panel solo permite el correo <span className="font-semibold">{allowedEmail}</span>. Además, Firestore requiere el claim{" "}
+              <span className="font-semibold">admin=true</span>.
             </p>
           </div>
         )}
 
         {authError ? (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {authError}
-          </div>
+          <div className="mt-3 rounded-xl bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{authError}</div>
         ) : null}
       </section>
 
       {user && !isAdmin ? (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          No tienes permisos de admin. Si este es tu usuario, asígnale el claim <code className="font-semibold">admin</code>{" "}
-          y vuelve a cargar la página.
+        <section className="rounded-2xl bg-amber-50 p-5 text-sm text-amber-900">
+          No tienes permisos de admin. Si este es tu usuario, asígnale el claim <code className="font-semibold">admin</code> y vuelve a cargar la
+          página.
         </section>
       ) : null}
 
       {user && isAdmin ? (
         <>
-          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-[0_24px_48px_rgba(26,28,28,0.04)] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <label className="text-sm font-medium text-slate-700">
                 Jornada{" "}
                 <select
-                  className="ml-2 h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 shadow-sm outline-none"
+                  className="ml-2 h-10 rounded-full bg-slate-50 px-4 text-xs font-semibold text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
                   value={matchday}
                   onChange={(e) => setMatchday(e.target.value as "1" | "2" | "3")}
                 >
@@ -372,13 +346,11 @@ export default function AdminPage() {
           </section>
 
           {globalMsg ? (
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-              {globalMsg}
-            </div>
+            <div className="rounded-xl bg-white px-4 py-3 text-sm text-slate-700 shadow-[0_24px_48px_rgba(26,28,28,0.04)]">{globalMsg}</div>
           ) : null}
 
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <ul className="divide-y divide-slate-200">
+          <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
+            <ul className="divide-y divide-slate-200/70">
               {fixtures.map((fx) => {
                 const master = docsById[fx.id];
                 const { dateLabel, time } = formatKickoffCaracas(master?.kickoffAt, fx.kickoffAt);
@@ -388,8 +360,7 @@ export default function AdminPage() {
                 const err = rowError[fx.id];
                 const statusValue = draft?.status ?? "scheduled";
                 const isFinal = statusValue === "final";
-                const statusLabel =
-                  statusValue === "scheduled" ? "Programado" : statusValue === "live" ? "En vivo" : "Final";
+                const statusLabel = statusValue === "scheduled" ? "Programado" : statusValue === "live" ? "En vivo" : "Final";
                 const statusTone =
                   statusValue === "scheduled"
                     ? "bg-slate-100 text-slate-700"
@@ -412,9 +383,7 @@ export default function AdminPage() {
                           <div className="text-center">
                             <div className="flex items-center justify-center gap-2">
                               <div className="text-xs font-medium text-slate-500">{fx.id}</div>
-                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusTone}`}>
-                                {statusLabel}
-                              </span>
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusTone}`}>{statusLabel}</span>
                             </div>
                             {groupId ? (
                               <div className="mt-1">
@@ -425,9 +394,7 @@ export default function AdminPage() {
                             ) : null}
                             <div className="text-lg font-semibold tracking-tight text-slate-900">{time}</div>
                             <div className="text-xs font-medium text-slate-500">{dateLabel}</div>
-                            <div className="mt-1 text-[11px] font-medium text-slate-400">
-                              Hora Venezuela (America/Caracas)
-                            </div>
+                            <div className="mt-1 text-[11px] font-medium text-slate-400">Hora Venezuela (America/Caracas)</div>
                           </div>
 
                           <div className="flex justify-start">
@@ -440,27 +407,23 @@ export default function AdminPage() {
                         <button
                           type="button"
                           onClick={() => loadOne(fx.id)}
-                          className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-50"
+                          className="shrink-0 rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-200"
                         >
                           {isLoading ? "..." : "Refrescar"}
                         </button>
                       </div>
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex flex-1 flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-1 flex-col gap-3 rounded-2xl bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
                           <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                             Estado
                             <select
-                              className="ml-2 h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-900 shadow-sm outline-none"
+                              className="ml-2 h-10 rounded-full bg-white px-4 text-xs font-semibold text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
                               value={statusValue}
                               onChange={(e) =>
                                 setDraftById((s) => ({
                                   ...s,
-                                  [fx.id]: {
-                                    status: e.target.value as MatchStatus,
-                                    home: s[fx.id]?.home ?? "",
-                                    away: s[fx.id]?.away ?? "",
-                                  },
+                                  [fx.id]: { status: e.target.value as MatchStatus, home: s[fx.id]?.home ?? "", away: s[fx.id]?.away ?? "" },
                                 }))
                               }
                               onFocus={() => setDirtyIds((s) => ({ ...s, [fx.id]: true }))}
@@ -471,7 +434,7 @@ export default function AdminPage() {
                             </select>
                           </label>
 
-                          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                          <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-sm">
                             <span className="text-xs font-semibold text-slate-700">Resultado</span>
                             <div className="flex items-center gap-2">
                               <input
@@ -482,11 +445,7 @@ export default function AdminPage() {
                                 onChange={(e) =>
                                   setDraftById((s) => ({
                                     ...s,
-                                    [fx.id]: {
-                                      status: s[fx.id]?.status ?? "scheduled",
-                                      home: e.target.value,
-                                      away: s[fx.id]?.away ?? "",
-                                    },
+                                    [fx.id]: { status: s[fx.id]?.status ?? "scheduled", home: e.target.value, away: s[fx.id]?.away ?? "" },
                                   }))
                                 }
                                 onFocus={() => setDirtyIds((s) => ({ ...s, [fx.id]: true }))}
@@ -502,11 +461,7 @@ export default function AdminPage() {
                                 onChange={(e) =>
                                   setDraftById((s) => ({
                                     ...s,
-                                    [fx.id]: {
-                                      status: s[fx.id]?.status ?? "scheduled",
-                                      home: s[fx.id]?.home ?? "",
-                                      away: e.target.value,
-                                    },
+                                    [fx.id]: { status: s[fx.id]?.status ?? "scheduled", home: s[fx.id]?.home ?? "", away: e.target.value },
                                   }))
                                 }
                                 onFocus={() => setDirtyIds((s) => ({ ...s, [fx.id]: true }))}
@@ -514,11 +469,7 @@ export default function AdminPage() {
                                 disabled={!isFinal}
                               />
                             </div>
-                            {!isFinal ? (
-                              <span className="ml-1 text-[11px] font-medium text-slate-400">
-                                (solo en Final)
-                              </span>
-                            ) : null}
+                            {!isFinal ? <span className="ml-1 text-[11px] font-medium text-slate-400">(solo en Final)</span> : null}
                           </div>
                         </div>
 
@@ -526,17 +477,13 @@ export default function AdminPage() {
                           type="button"
                           onClick={() => saveOne(fx.id)}
                           disabled={isSaving}
-                          className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          className="inline-flex items-center justify-center rounded-full bg-gradient-to-br from-[#3c0007] to-[#630012] px-5 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isSaving ? "Guardando..." : "Guardar"}
                         </button>
                       </div>
 
-                      {err ? (
-                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                          {err}
-                        </div>
-                      ) : null}
+                      {err ? <div className="rounded-xl bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{err}</div> : null}
                     </div>
                   </li>
                 );
