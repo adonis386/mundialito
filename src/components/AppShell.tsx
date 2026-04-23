@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Shield } from "lucide-react";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase/client";
 
@@ -14,12 +15,14 @@ type NavItem = {
 const nav: NavItem[] = [
   { href: "/groups", label: "Grupos" },
   { href: "/matches", label: "Partidos" },
+  { href: "/playoffs", label: "Eliminatoria" },
   { href: "/leagues", label: "Ligas" },
   { href: "/leaderboard", label: "Ranking" },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, (u) => {
@@ -27,6 +30,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
     return () => unsub();
   }, []);
+
+  function isActive(href: string) {
+    if (!pathname) return false;
+    if (href === "/") return pathname === "/";
+    return pathname === href || pathname.startsWith(`${href}/`);
+  }
 
   return (
     <div className="min-h-dvh bg-[#f9f9f9]">
@@ -57,7 +66,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className="rounded-full bg-white/60 px-3 py-2 text-sm font-semibold text-[#1a1c1c] shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/15"
+                aria-current={isActive(item.href) ? "page" : undefined}
+                className={[
+                  "cursor-pointer rounded-full px-3 py-2 text-sm font-semibold shadow-sm transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/15",
+                  isActive(item.href)
+                    ? "bg-[#3c0007]/10 text-[#3c0007]"
+                    : "bg-white/60 text-[#1a1c1c] hover:bg-[#3c0007]/10 hover:text-[#3c0007]",
+                ].join(" ")}
               >
                 {item.label}
               </Link>
@@ -71,7 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => signOut(firebaseAuth)}
-                  className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-[#1a1c1c] hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/15"
+                  className="cursor-pointer rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-[#1a1c1c] transition-colors duration-200 ease-out hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/15"
                 >
                   Cerrar sesión
                 </button>
@@ -79,7 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : (
               <Link
                 href="/login"
-                className="ml-1 rounded-full bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-[#3c0007]/10 transition-opacity hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/20"
+                className="ml-1 cursor-pointer rounded-full bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-2 text-sm font-bold text-white shadow-lg shadow-[#3c0007]/10 transition-all duration-200 ease-out hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/20"
               >
                 Entrar
               </Link>

@@ -268,8 +268,10 @@ export default function MatchesPage() {
                       <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#3c0007]/[0.03] to-transparent" />
                       <div className="relative z-10 grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 sm:gap-8">
                         <div className="flex min-w-0 flex-col items-center gap-2">
-                          <div className="rounded-full bg-white p-1 shadow-sm">
-                            <TeamFlag team={m.home} layout="stacked" size="sm" />
+                          <div className="rounded-full bg-gradient-to-br from-[#3c0007] via-[#630012] to-[#096c4b] p-[2px] shadow-sm">
+                            <div className="rounded-full bg-white p-4">
+                              <TeamFlag team={m.home} layout="stacked" size="sm" />
+                            </div>
                           </div>
                           <div className="max-w-[12rem] truncate text-center text-sm font-bold uppercase tracking-wide text-slate-900">
                             {m.home.nameEs}
@@ -305,8 +307,10 @@ export default function MatchesPage() {
                         </div>
 
                         <div className="flex min-w-0 flex-col items-center gap-2">
-                          <div className="rounded-full bg-white p-1 shadow-sm">
-                            <TeamFlag team={m.away} layout="stacked" size="sm" />
+                          <div className="rounded-full bg-gradient-to-br from-[#3c0007] via-[#630012] to-[#096c4b] p-[2px] shadow-sm">
+                            <div className="rounded-full bg-white p-4">
+                              <TeamFlag team={m.away} layout="stacked" size="sm" />
+                            </div>
                           </div>
                           <div className="max-w-[12rem] truncate text-center text-sm font-bold uppercase tracking-wide text-slate-900">
                             {m.away.nameEs}

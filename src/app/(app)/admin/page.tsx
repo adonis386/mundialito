@@ -26,6 +26,7 @@ type MatchStatus = "scheduled" | "live" | "final";
 type MasterMatchDoc = {
   status: MatchStatus;
   score?: { home: number; away: number };
+  version?: number;
   kickoffAt?: unknown;
   updatedAt?: unknown;
   updatedBy?: string;
@@ -226,11 +227,13 @@ export default function AdminPage() {
 
       const status = draft.status;
       const score = status === "final" ? { home: clampNonNegInt(draft.home), away: clampNonNegInt(draft.away) } : undefined;
+      const prevVersion = Number(docsById[matchId]?.version ?? 0);
+      const nextVersion = Math.max(1, prevVersion + 1);
 
       const ref = doc(firestore, "tournaments", "2026", "matches", matchId);
       await setDoc(
         ref,
-        { status, ...(score ? { score } : {}), updatedAt: serverTimestamp(), updatedBy: user.uid },
+        { status, ...(score ? { score } : {}), version: nextVersion, updatedAt: serverTimestamp(), updatedBy: user.uid },
         { merge: true }
       );
 

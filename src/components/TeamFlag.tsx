@@ -43,14 +43,14 @@ export function TeamFlag({
         <span className={labelClass} lang="es">
           {label}
         </span>
-        <span className="inline-flex shrink-0 rounded-md shadow-sm ring-1 ring-black/10">
-          <Flag className={`${sizeClass[size]} rounded-md`} aria-hidden />
+        <span className="inline-flex shrink-0 rounded-lg shadow-sm ring-1 ring-black/10">
+          <Flag className={`${sizeClass[size]} rounded-lg`} aria-hidden />
         </span>
       </>
     ) : (
       <>
-        <span className="inline-flex shrink-0 rounded-md shadow-sm ring-1 ring-black/10">
-          <Flag className={`${sizeClass[size]} rounded-md`} aria-hidden />
+        <span className="inline-flex shrink-0 rounded-lg shadow-sm ring-1 ring-black/10">
+          <Flag className={`${sizeClass[size]} rounded-lg`} aria-hidden />
         </span>
         <span className={labelClass} lang="es">
           {label}

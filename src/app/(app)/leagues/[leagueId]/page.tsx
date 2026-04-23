@@ -167,14 +167,14 @@ export default function LeagueDetailPage() {
                 <button
                   type="button"
                   onClick={copyJoinCode}
-                  className="inline-flex items-center justify-center rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 hover:bg-slate-200"
+                  className="inline-flex cursor-pointer items-center justify-center rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 transition-colors duration-200 ease-out hover:bg-slate-200"
                 >
                   {copied ? "Copiado" : "Copiar"}
                 </button>
                 <button
                   type="button"
                   onClick={shareWhatsApp}
-                  className="inline-flex items-center justify-center rounded-full bg-[#096c4b] px-4 py-2 text-sm font-bold text-white hover:bg-[#0b8d62]"
+                  className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[#096c4b] px-4 py-2 text-sm font-bold text-white transition-colors duration-200 ease-out hover:bg-[#0b8d62]"
                 >
                   WhatsApp
                 </button>
@@ -183,7 +183,7 @@ export default function LeagueDetailPage() {
                     type="button"
                     onClick={regenerateCode}
                     disabled={codeBusy}
-                    className="inline-flex items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-900 shadow-sm transition-colors duration-200 ease-out hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {codeBusy ? "..." : "Regenerar"}
                   </button>
@@ -198,7 +198,7 @@ export default function LeagueDetailPage() {
                   type="button"
                   onClick={regenerateCode}
                   disabled={codeBusy}
-                  className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-[#3c0007] disabled:opacity-60"
+                  className="inline-flex cursor-pointer items-center justify-center rounded-full bg-slate-900 px-4 py-2.5 text-sm font-bold text-white transition-colors duration-200 ease-out hover:bg-[#3c0007] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {codeBusy ? "Generando..." : "Generar código"}
                 </button>
