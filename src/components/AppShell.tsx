@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase/client";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 type NavItem = {
   href: string;
@@ -24,6 +25,7 @@ const nav: NavItem[] = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const pathname = usePathname();
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, (u) => {
@@ -116,9 +118,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main id="main" className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-        {children}
-      </main>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.main
+          key={pathname ?? "app"}
+          id="main"
+          className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6"
+          initial={reduceMotion ? undefined : { opacity: 0, y: 8 }}
+          animate={reduceMotion ? undefined : { opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+        >
+          {children}
+        </motion.main>
+      </AnimatePresence>
     </div>
   );
 }
