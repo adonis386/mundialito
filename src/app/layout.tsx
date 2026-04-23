@@ -4,6 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Quiniela Mundial 2026",
   description: "Juega la quiniela del Mundial 2026 con ligas privadas y ranking global.",
+  icons: {
+    icon: [{ url: "/assets/logocopadel-mundo.jpg" }],
+  },
 };
 
 export default function RootLayout({

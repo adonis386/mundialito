@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Shield } from "lucide-react";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -52,8 +53,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <Link href="/" className="truncate text-sm font-black italic tracking-tighter text-[#1a1c1c]">
-              MUNDIALITO 2026
+            <Link href="/" className="flex min-w-0 items-center gap-2">
+              <span className="relative h-9 w-9 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5">
+                <Image
+                  src="/assets/logocopadel-mundo.jpg"
+                  alt="Logo Mundialito 2026"
+                  fill
+                  sizes="36px"
+                  className="object-cover"
+                  priority
+                />
+              </span>
+              <span className="truncate text-sm font-black italic tracking-tighter text-[#1a1c1c]">
+                MUNDIALITO 2026
+              </span>
             </Link>
             <span className="hidden items-center gap-1 rounded-full bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-[#45464f] shadow-sm sm:inline-flex">
               <Shield className="h-3.5 w-3.5 text-[#3c0007]" aria-hidden="true" />
