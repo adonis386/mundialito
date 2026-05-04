@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase/client";
+import { UserProfileSync } from "@/components/UserProfileSync";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 type NavItem = {
@@ -42,6 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-[#f9f9f9]">
+      <UserProfileSync />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:shadow"

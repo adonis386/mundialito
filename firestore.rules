@@ -19,6 +19,11 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid));
     }
 
+    function matchKickoffPassed(matchId) {
+      return exists(/databases/$(database)/documents/tournaments/2026/matches/$(matchId))
+        && request.time >= get(/databases/$(database)/documents/tournaments/2026/matches/$(matchId)).data.kickoffAt;
+    }
+
     // -------------------------
     // Master (fuente de verdad)
     // -------------------------
@@ -29,6 +34,12 @@ service cloud.firestore {
       match /matches/{matchId} {
         allow read: if true;
         allow create, update, delete: if isAdmin();
+      }
+
+      // Bracket / eliminatoria (metadatos, slots, resultados KO) — materializado admin; lectura pública
+      match /knockout/{document=**} {
+        allow read: if true;
+        allow write: if isAdmin();
       }
     }
 
@@ -44,7 +55,8 @@ service cloud.firestore {
       allow read, create, update, delete: if isSelf(uid);
 
       match /picks/{matchId} {
-        allow read: if isSelf(uid);
+        // Antes del kickoff: solo el dueño ve su pick. Después del kickoff: cualquier usuario autenticado puede leer (comunidad).
+        allow read: if isSelf(uid) || (isSignedIn() && matchKickoffPassed(matchId));
 
         allow create, update, delete: if isSelf(uid)
           && request.resource.data.matchId == matchId

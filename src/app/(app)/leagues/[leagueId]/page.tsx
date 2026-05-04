@@ -7,6 +7,7 @@ import { httpsCallable } from "firebase/functions";
 import { firebaseAuth, firestore, functions } from "@/lib/firebase/client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { userListLabel } from "@/lib/userLabel";
 
 type LeagueDoc = {
   name?: string;
@@ -16,7 +17,7 @@ type LeagueDoc = {
 };
 
 type LeaderboardDoc = {
-  top?: Array<{ uid: string; pointsTotal: number; rank: number }>;
+  top?: Array<{ uid: string; pointsTotal: number; rank: number; displayName?: string | null }>;
   updatedAt?: unknown;
 };
 
@@ -39,6 +40,7 @@ export default function LeagueDetailPage() {
   const [codeBusy, setCodeBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [myLeagueOutside, setMyLeagueOutside] = useState<{ rank: number; pointsTotal: number } | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, (u) => setUid(u?.uid ?? null));
@@ -131,6 +133,38 @@ export default function LeagueDetailPage() {
   const title = league?.name ?? "Liga";
   const entries = useMemo(() => leaderboard?.top ?? [], [leaderboard]);
 
+  const myTableEntry = useMemo(() => {
+    if (!uid) return null;
+    return entries.find((e) => e.uid === uid) ?? null;
+  }, [entries, uid]);
+
+  useEffect(() => {
+    if (!uid || !leagueId) {
+      setMyLeagueOutside(null);
+      return;
+    }
+    if (myTableEntry) {
+      setMyLeagueOutside(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const fn = httpsCallable(functions, "getMyLeagueRank");
+        const res = await fn({ leagueId });
+        const data = res.data as { rank?: number; pointsTotal?: number };
+        if (!cancelled && typeof data?.rank === "number") {
+          setMyLeagueOutside({ rank: data.rank, pointsTotal: Number(data.pointsTotal ?? 0) });
+        }
+      } catch {
+        if (!cancelled) setMyLeagueOutside(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [uid, leagueId, myTableEntry]);
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -152,6 +186,20 @@ export default function LeagueDetailPage() {
       </header>
 
       {error ? <div className="rounded-xl bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]">{error}</div> : null}
+
+      {uid && myTableEntry ? (
+        <div className="rounded-xl border border-[#9ff4c9]/60 bg-[#f0fff7] px-4 py-3 text-sm text-slate-800">
+          Tu puesto en esta liga (tabla publicada):{" "}
+          <span className="font-black text-[#3c0007]">#{myTableEntry.rank}</span> · {myTableEntry.pointsTotal} pts
+        </div>
+      ) : null}
+
+      {uid && !myTableEntry && myLeagueOutside ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
+          Tu puesto en esta liga: <span className="font-black text-[#3c0007]">#{myLeagueOutside.rank}</span> ·{" "}
+          {myLeagueOutside.pointsTotal} pts (fuera del top 50 publicado).
+        </div>
+      ) : null}
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
         <div className="bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-3">
@@ -226,7 +274,7 @@ export default function LeagueDetailPage() {
               <div key={e.uid} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="flex items-center gap-3">
                   <div className="w-8 text-center text-sm font-black text-slate-900">#{e.rank}</div>
-                  <div className="text-sm font-semibold text-slate-900">{e.uid}</div>
+                  <div className="min-w-0 truncate text-sm font-semibold text-slate-900">{userListLabel(e, uid)}</div>
                 </div>
                 <div className="text-sm font-black text-[#3c0007]">{e.pointsTotal} pts</div>
               </div>

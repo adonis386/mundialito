@@ -1,15 +1,6 @@
 import Link from "next/link";
 import { ChevronRight, Trophy } from "lucide-react";
-
-type Slot =
-  | { kind: "fixed"; label: string }
-  | { kind: "thirdPool"; label: string; pools: string[] };
-
-type KnockoutMatch = {
-  id: string;
-  home: Slot;
-  away: Slot;
-};
+import { buildKnockoutRounds2026, type KnockoutMatch, type Slot } from "@/data/knockoutBracket2026";
 
 function SlotBadge({ slot }: { slot: Slot }) {
   if (slot.kind === "thirdPool") {
@@ -62,53 +53,8 @@ function MatchCard({ match }: { match: KnockoutMatch }) {
   );
 }
 
-const R32: KnockoutMatch[] = [
-  {
-    id: "Dieciseisavos 1",
-    home: { kind: "fixed", label: "1° Grupo A" },
-    away: { kind: "thirdPool", label: "3° lugar", pools: ["Grupo C", "E", "F", "H", "I"] },
-  },
-  {
-    id: "Dieciseisavos 2",
-    home: { kind: "fixed", label: "1° Grupo B" },
-    away: { kind: "thirdPool", label: "3° lugar", pools: ["Grupo E", "F", "G", "I", "J"] },
-  },
-  {
-    id: "Dieciseisavos 3",
-    home: { kind: "fixed", label: "2° Grupo A" },
-    away: { kind: "fixed", label: "2° Grupo B" },
-  },
-  {
-    id: "Dieciseisavos 4",
-    home: { kind: "fixed", label: "1° Grupo E" },
-    away: { kind: "thirdPool", label: "3° lugar", pools: ["Grupo A", "B", "C", "D", "F"] },
-  },
-];
-
-function makeTbdMatches(roundLabel: string, count: number, startAt = 1) {
-  const out: KnockoutMatch[] = [];
-  for (let i = startAt; i < startAt + count; i += 1) {
-    out.push({
-      id: `${roundLabel} ${i}`,
-      home: { kind: "fixed", label: "TBD" },
-      away: { kind: "fixed", label: "TBD" },
-    });
-  }
-  return out;
-}
-
 export default function PlayoffsPage() {
-  const rounds = [
-    {
-      key: "r32",
-      title: "Dieciseisavos",
-      subtitle: "32 equipos",
-      matches: [...R32, ...makeTbdMatches("Dieciseisavos", 12, R32.length + 1)],
-    },
-    { key: "r16", title: "Octavos", subtitle: "16 equipos", matches: makeTbdMatches("Octavos", 8) },
-    { key: "qf", title: "Cuartos", subtitle: "8 equipos", matches: makeTbdMatches("Cuartos", 4) },
-    { key: "sf", title: "Semifinales", subtitle: "4 equipos", matches: makeTbdMatches("Semifinal", 2) },
-  ] as const;
+  const rounds = buildKnockoutRounds2026();
 
   return (
     <div className="relative overflow-hidden rounded-3xl">
