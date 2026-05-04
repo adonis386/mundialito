@@ -2,6 +2,7 @@ export const TOURNAMENT_ID = "2026" as const;
 
 export const firestorePaths = {
   masterMatchDoc: (matchId: string) => `tournaments/${TOURNAMENT_ID}/matches/${matchId}`,
+  userProfileDoc: (uid: string) => `users/${uid}`,
   userPickDoc: (uid: string, matchId: string) => `users/${uid}/picks/${matchId}`,
   userStatsDoc: (uid: string) => `userStats/${uid}`,
   scoringConfigDoc: () => `scoring/config`,

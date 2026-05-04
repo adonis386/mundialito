@@ -387,13 +387,29 @@ export const onMasterMatchWritten = onDocumentWritten(
   }
 );
 
+type TopRow = { uid: string; pointsTotal: number; rank: number };
+type TopRowWithName = TopRow & { displayName: string | null };
+
+async function enrichTopWithDisplayNames(rows: TopRow[]): Promise<TopRowWithName[]> {
+  if (rows.length === 0) return [];
+  const refs = rows.map((r) => db.doc(firestorePaths.userProfileDoc(r.uid)));
+  const snaps = await db.getAll(...refs);
+  return rows.map((r, i) => {
+    const s = snaps[i]!;
+    const raw = s.exists ? (s.data() as { displayName?: string })?.displayName : undefined;
+    const displayName = raw != null && String(raw).trim() ? String(raw).trim() : null;
+    return { ...r, displayName };
+  });
+}
+
 async function recomputeGlobalLeaderboard(sourceVersion: number) {
   const snap = await db.collection("userStats").orderBy("pointsTotal", "desc").limit(50).get();
-  const top = snap.docs.map((d, idx) => ({
+  const base: TopRow[] = snap.docs.map((d, idx) => ({
     uid: d.id,
     pointsTotal: Number((d.data() as any).pointsTotal ?? 0),
     rank: idx + 1,
   }));
+  const top = await enrichTopWithDisplayNames(base);
 
   await db.doc(firestorePaths.globalLeaderboardDoc()).set({
     top,
@@ -409,11 +425,12 @@ async function recomputeLeagueLeaderboard(leagueId: string, sourceVersion: numbe
     .limit(50)
     .get();
 
-  const top = snap.docs.map((d, idx) => ({
+  const base: TopRow[] = snap.docs.map((d, idx) => ({
     uid: d.id,
     pointsTotal: Number((d.data() as any).pointsTotal ?? 0),
     rank: idx + 1,
   }));
+  const top = await enrichTopWithDisplayNames(base);
 
   await db.doc(firestorePaths.leagueLeaderboardDoc(leagueId)).set({
     top,
@@ -421,4 +438,26 @@ async function recomputeLeagueLeaderboard(leagueId: string, sourceVersion: numbe
     sourceVersion,
   });
 }
+
+export const getMyGlobalRank = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = req.auth.uid;
+  const statSnap = await db.doc(firestorePaths.userStatsDoc(uid)).get();
+  const myPoints = statSnap.exists ? Number((statSnap.data() as any).pointsTotal ?? 0) : 0;
+  const higher = await db.collection("userStats").where("pointsTotal", ">", myPoints).count().get();
+  const rank = higher.data().count + 1;
+  return { ok: true, rank, pointsTotal: myPoints };
+});
+
+export const getMyLeagueRank = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const { leagueId } = (req.data ?? {}) as { leagueId?: string };
+  if (!leagueId?.trim()) throw new HttpsError("invalid-argument", "Falta leagueId.");
+  const uid = req.auth.uid;
+  const statSnap = await db.doc(firestorePaths.leagueStatsDoc(leagueId.trim(), uid)).get();
+  const myPoints = statSnap.exists ? Number((statSnap.data() as any).pointsTotal ?? 0) : 0;
+  const higher = await db.collection(`leagues/${leagueId.trim()}/stats`).where("pointsTotal", ">", myPoints).count().get();
+  const rank = higher.data().count + 1;
+  return { ok: true, rank, pointsTotal: myPoints };
+});
 

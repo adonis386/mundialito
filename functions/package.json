@@ -15,14 +15,18 @@
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
     "seed:firestore": "npm run build && node lib/seedFirestore.js",
-    "set-admin": "npm run build && node lib/setAdminClaim.js"
+    "seed:fantasy-demo": "npm run build && node lib/seedFantasyDemo.js",
+    "seed:demo-final-scores": "npm run build && node lib/seedDemoFinalScores.js",
+    "set-admin": "npm run build && node lib/setAdminClaim.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "firebase-admin": "^13.5.0",
     "firebase-functions": "^6.4.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   }
 }
 
