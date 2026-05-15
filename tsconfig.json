@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "lib": ["DOM", "DOM.Iterable", "ES2022", "webworker"],
     "allowJs": false,
     "skipLibCheck": true,
     "strict": true,
@@ -20,6 +20,6 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "functions"]
+  "exclude": ["node_modules", "functions", "public/sw.js", "public/swe-worker-*"]
 }
 

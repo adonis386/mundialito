@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { firebaseAuth } from "@/lib/firebase/client";
+import { PwaInstallBanner } from "@/components/PwaInstallBanner";
 import { UserProfileSync } from "@/components/UserProfileSync";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
@@ -133,6 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </motion.main>
       </AnimatePresence>
+      <PwaInstallBanner />
     </div>
   );
 }

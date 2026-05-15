@@ -5,6 +5,12 @@ node_modules/
 .next/
 out/
 
+# Serwist (generado en build)
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
+public/swe-worker-*.js.map
+
 # Env (secrets — never commit)
 .env
 .env.local
