@@ -1,12 +1,6 @@
 import crypto from "node:crypto";
 
-import {
-  FieldPath,
-  FieldValue,
-  Timestamp,
-  getFirestore,
-  type Query,
-} from "firebase-admin/firestore";
+import { FieldValue, Timestamp, getFirestore, type Query } from "firebase-admin/firestore";
 import { initializeApp } from "firebase-admin/app";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -150,6 +144,44 @@ async function writeLeagueOverview(leagueId: string, fields: LeagueOverviewField
 }
 
 /** Fuente de verdad: subcolección members (evita desfase en overview / league doc). */
+async function assertLeagueMember(leagueId: string, uid: string) {
+  const memberSnap = await db.doc(firestorePaths.leagueMemberDoc(leagueId, uid)).get();
+  if (!memberSnap.exists) throw new HttpsError("permission-denied", "No eres miembro de esta liga.");
+}
+
+/** Recalcula puntos por miembro desde picks + partidos final (misma matriz global). */
+async function reconcileLeagueStats(leagueId: string) {
+  const scoringConfig = await getScoringConfig();
+  const membersSnap = await db.collection(`${firestorePaths.leagueDoc(leagueId)}/members`).get();
+  const finalMatchesSnap = await db
+    .collection(`tournaments/${TOURNAMENT_ID}/matches`)
+    .where("status", "==", "final")
+    .get();
+
+  for (const memberDoc of membersSnap.docs) {
+    const uid = memberDoc.id;
+    let pointsTotal = 0;
+
+    for (const matchDoc of finalMatchesSnap.docs) {
+      const match = matchDoc.data() as MasterMatchDoc;
+      if (!match.score) continue;
+      const pickSnap = await db.doc(firestorePaths.userPickDoc(uid, matchDoc.id)).get();
+      if (!pickSnap.exists) continue;
+      const pick = pickSnap.data() as PickDoc;
+      pointsTotal += scoreMatch({
+        config: scoringConfig,
+        prediction: pick.prediction,
+        finalScore: match.score,
+      }).points;
+    }
+
+    await db.doc(firestorePaths.leagueStatsDoc(leagueId, uid)).set(
+      { pointsTotal, updatedAt: Timestamp.now() },
+      { merge: true }
+    );
+  }
+}
+
 async function syncLeagueMembersCount(leagueId: string) {
   const countSnap = await db.collection(`${firestorePaths.leagueDoc(leagueId)}/members`).count().get();
   const count = countSnap.data().count;
@@ -276,7 +308,21 @@ export const createLeague = onCall(async (req) => {
     },
   });
 
+  await recomputeLeagueLeaderboard(leagueId, 0);
+
   return { ok: true, leagueId, joinCode };
+});
+
+export const refreshLeagueLeaderboard = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const { leagueId } = (req.data ?? {}) as { leagueId?: string };
+  const id = leagueId?.trim();
+  if (!id) throw new HttpsError("invalid-argument", "Falta leagueId.");
+
+  await assertLeagueMember(id, req.auth.uid);
+  await recomputeLeagueLeaderboard(id, Date.now());
+
+  return { ok: true };
 });
 
 export const updateLeaguePrizeSettings = onCall(async (req) => {
@@ -609,15 +655,9 @@ export const onMasterMatchWritten = onDocumentWritten(
       }
 
       // Update per-league stats for leagues where uid is a member
-      const leaguesSnap = await db
-        .collectionGroup("members")
-        .where(FieldPath.documentId(), "==", uid)
-        .get();
-
-      for (const memberSnap of leaguesSnap.docs) {
-        const leagueId = memberSnap.ref.parent.parent?.id;
-        if (!leagueId) continue;
-
+      const membershipsSnap = await db.collection(`users/${uid}/leagueMemberships`).get();
+      for (const membershipDoc of membershipsSnap.docs) {
+        const leagueId = membershipDoc.id;
         touchedLeagueIds.add(leagueId);
 
         await db.doc(firestorePaths.leagueStatsDoc(leagueId, uid)).set(
@@ -633,6 +673,7 @@ export const onMasterMatchWritten = onDocumentWritten(
     // Recompute global leaderboard (top 50) and touched league leaderboards.
     await recomputeGlobalLeaderboard(match.version);
     for (const leagueId of touchedLeagueIds) {
+      await reconcileLeagueStats(leagueId);
       await recomputeLeagueLeaderboard(leagueId, match.version);
     }
   }
@@ -670,6 +711,8 @@ async function recomputeGlobalLeaderboard(sourceVersion: number) {
 }
 
 async function recomputeLeagueLeaderboard(leagueId: string, sourceVersion: number) {
+  await reconcileLeagueStats(leagueId);
+
   const snap = await db
     .collection(`leagues/${leagueId}/stats`)
     .orderBy("pointsTotal", "desc")

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -72,6 +72,8 @@ export default function LeagueDetailPage() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myLeagueOutside, setMyLeagueOutside] = useState<{ rank: number; pointsTotal: number } | null>(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const autoSyncKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, (u) => setUid(u?.uid ?? null));
@@ -268,6 +270,21 @@ export default function LeagueDetailPage() {
   }, [publicInfo, members.length]);
   const entries = useMemo(() => leaderboard?.top ?? [], [leaderboard]);
 
+  async function refreshLeaderboard() {
+    if (!leagueId || !uid) return;
+    setError(null);
+    try {
+      setRefreshBusy(true);
+      const fn = httpsCallable(functions, "refreshLeagueLeaderboard");
+      await fn({ leagueId });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "No se pudo actualizar la tabla.";
+      setError(msg);
+    } finally {
+      setRefreshBusy(false);
+    }
+  }
+
   const myTableEntry = useMemo(() => {
     if (!uid) return null;
     return entries.find((e) => e.uid === uid) ?? null;
@@ -299,6 +316,15 @@ export default function LeagueDetailPage() {
       cancelled = true;
     };
   }, [uid, leagueId, myTableEntry]);
+
+  // Sincroniza al entrar (una vez por visita) y la tabla sigue en vivo vía onSnapshot cuando un partido pasa a final.
+  useEffect(() => {
+    if (!uid || !leagueId || !isParticipant || members.length === 0) return;
+    const syncKey = `${leagueId}:${members.length}`;
+    if (autoSyncKeyRef.current === syncKey) return;
+    autoSyncKeyRef.current = syncKey;
+    void refreshLeaderboard();
+  }, [uid, leagueId, isParticipant, members.length]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -357,15 +383,31 @@ export default function LeagueDetailPage() {
       ) : null}
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-        <div className="bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-3">
-          <div className="text-sm font-black italic tracking-tighter text-white">Tabla de posiciones</div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">Ordenado por puntos</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-3">
+          <div>
+            <div className="text-sm font-black italic tracking-tighter text-white">Tabla de posiciones</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">
+              Se actualiza sola al publicar resultados
+            </div>
+          </div>
+          {isParticipant ? (
+            <button
+              type="button"
+              disabled={refreshBusy}
+              onClick={() => void refreshLeaderboard()}
+              className="shrink-0 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/25 disabled:opacity-60"
+            >
+              {refreshBusy ? "Calculando…" : "Actualizar"}
+            </button>
+          ) : null}
         </div>
 
         <div className="divide-y divide-slate-200/70">
           {entries.length === 0 ? (
             <div className="px-4 py-6 text-sm text-slate-700">
-              Aún no hay posiciones. Cuando finalice el primer partido con picks, se generará el leaderboard.
+              {refreshBusy
+                ? "Sincronizando puntos con los partidos finalizados…"
+                : "Sincronizando la tabla… Si tarda, pulsa Actualizar."}
             </div>
           ) : (
             entries.map((e) => (

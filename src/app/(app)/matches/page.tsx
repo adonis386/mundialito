@@ -5,6 +5,7 @@ import { MATCHDAY_2 } from "@/data/matchday2";
 import { MATCHDAY_3 } from "@/data/matchday3";
 import { TeamFlag } from "@/components/TeamFlag";
 import { getGroupIdForMatch } from "@/lib/groups";
+import { isPickEditable, pickLockReason } from "@/lib/matches/pickLock";
 import { firestore, firebaseAuth } from "@/lib/firebase/client";
 import Link from "next/link";
 import {
@@ -162,12 +163,6 @@ export default function MatchesPage() {
     };
   }, [uid, localFixtures]);
 
-  function isLocked(matchId: string) {
-    const ms = toMillis(masterById[matchId]?.kickoffAt);
-    if (ms == null) return true;
-    return Date.now() >= ms;
-  }
-
   function shortParticipantLabel(ownerUid: string) {
     if (ownerUid.length <= 10) return ownerUid;
     return `${ownerUid.slice(0, 6)}…${ownerUid.slice(-4)}`;
@@ -221,6 +216,11 @@ export default function MatchesPage() {
 
   async function savePick(matchId: string) {
     if (!uid) return;
+    const master = masterById[matchId];
+    if (!isPickEditable(master)) {
+      setPickErrorById((s) => ({ ...s, [matchId]: pickLockReason(master) ?? "El pick está cerrado." }));
+      return;
+    }
     setSavingById((s) => ({ ...s, [matchId]: true }));
     setPickErrorById((s) => ({ ...s, [matchId]: null }));
     try {
@@ -304,7 +304,8 @@ export default function MatchesPage() {
               const master = masterById[m.id];
               const { dateLabel, time } = formatKickoffCaracas(master?.kickoffAt);
               const groupId = getGroupIdForMatch(m.home, m.away);
-              const locked = isLocked(m.id) || master?.status === "final";
+              const locked = !isPickEditable(master);
+              const lockReason = pickLockReason(master);
               const pick = picksById[m.id] ?? { home: "", away: "" };
               const saving = savingById[m.id];
               const pickErr = pickErrorById[m.id];
@@ -437,6 +438,10 @@ export default function MatchesPage() {
                             <div className="rounded-xl bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]" role="alert">
                               {pickErr}
                             </div>
+                          ) : null}
+
+                          {locked && lockReason ? (
+                            <p className="text-xs text-slate-600">{lockReason}</p>
                           ) : null}
 
                           {locked ? (
