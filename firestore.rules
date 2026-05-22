@@ -28,6 +28,19 @@ service cloud.firestore {
         && request.time >= masterMatch(matchId).data.kickoffAt;
     }
 
+    // Tras kickoff, en vivo o final: pronósticos visibles entre compañeros de liga.
+    function matchPicksReadable(matchId) {
+      return exists(/databases/$(database)/documents/tournaments/2026/matches/$(matchId))
+        && (
+          masterMatch(matchId).data.status in ['live', 'final']
+          || matchKickoffPassed(matchId)
+        );
+    }
+
+    function isLeaguePeer(pickOwnerUid) {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)/leaguePeers/$(pickOwnerUid));
+    }
+
     function matchPickEditable(matchId) {
       return exists(/databases/$(database)/documents/tournaments/2026/matches/$(matchId))
         && masterMatch(matchId).data.status == 'scheduled'
@@ -64,9 +77,15 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, create, update, delete: if isSelf(uid);
 
+      match /leaguePeers/{peerUid} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+
       match /picks/{matchId} {
-        // Antes del kickoff: solo el dueño ve su pick. Después del kickoff: cualquier usuario autenticado puede leer (comunidad).
-        allow read: if isSelf(uid) || (isSignedIn() && matchKickoffPassed(matchId));
+        // Antes del kickoff: solo el dueño. Después: compañeros de liga (misma liga privada).
+        allow read: if isSelf(uid)
+          || (isSignedIn() && matchPicksReadable(matchId) && isLeaguePeer(uid));
 
         allow create, update: if isSelf(uid)
           && matchPickEditable(matchId)

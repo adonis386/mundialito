@@ -6,25 +6,27 @@ import { MATCHDAY_3 } from "@/data/matchday3";
 import { TeamFlag } from "@/components/TeamFlag";
 import { getGroupIdForMatch } from "@/lib/groups";
 import { isPickEditable, pickLockReason } from "@/lib/matches/pickLock";
-import { firestore, firebaseAuth } from "@/lib/firebase/client";
+import { userListLabel } from "@/lib/userLabel";
+import { firestore, firebaseAuth, functions } from "@/lib/firebase/client";
 import Link from "next/link";
 import {
   collection,
-  collectionGroup,
   doc,
   documentId,
   deleteDoc,
   getDoc,
   getDocs,
-  limit,
   onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   where,
 } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
+import { httpsCallable } from "firebase/functions";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
+
+type LeaguePeer = { peerUid: string; displayName: string | null };
 
 function toMillis(ts: unknown): number | null {
   if (!ts) return null;
@@ -85,15 +87,70 @@ export default function MatchesPage() {
         loading: boolean;
         fetched: boolean;
         error?: string;
-        rows: Array<{ ownerUid: string; home: number; away: number }>;
+        rows: Array<{ ownerUid: string; displayName: string | null; home: number; away: number }>;
       }
     >
   >({});
+  const [leaguePeers, setLeaguePeers] = useState<LeaguePeer[]>([]);
+  const peersSyncRef = useRef(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, (u) => setUid(u?.uid ?? null));
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    if (!uid) {
+      setLeaguePeers([]);
+      peersSyncRef.current = false;
+      return;
+    }
+
+    if (!peersSyncRef.current) {
+      peersSyncRef.current = true;
+      const sync = httpsCallable(functions, "syncMyLeaguePeers");
+      void sync().catch(() => {
+        peersSyncRef.current = false;
+      });
+    }
+
+    const col = collection(firestore, "users", uid, "leaguePeers");
+    return onSnapshot(
+      col,
+      (snap) => {
+        const peers: LeaguePeer[] = snap.docs.map((d) => {
+          const data = d.data() as { peerUid?: string; displayName?: string | null };
+          return {
+            peerUid: String(data.peerUid ?? d.id),
+            displayName: data.displayName ?? null,
+          };
+        });
+        peers.sort((a, b) =>
+          userListLabel({ uid: a.peerUid, displayName: a.displayName }, uid).localeCompare(
+            userListLabel({ uid: b.peerUid, displayName: b.displayName }, uid),
+            "es"
+          )
+        );
+        setLeaguePeers(peers);
+      },
+      () => setLeaguePeers([])
+    );
+  }, [uid]);
+
+  useEffect(() => {
+    if (leaguePeers.length === 0) return;
+    setOthersByMatch((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const key of Object.keys(next)) {
+        if (next[key]?.fetched) {
+          next[key] = { ...next[key]!, fetched: false };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [leaguePeers.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,13 +227,9 @@ export default function MatchesPage() {
     };
   }, [uid, localFixtures]);
 
-  function shortParticipantLabel(ownerUid: string) {
-    if (ownerUid.length <= 10) return ownerUid;
-    return `${ownerUid.slice(0, 6)}…${ownerUid.slice(-4)}`;
-  }
-
   async function loadCommunityPicks(matchId: string) {
-      setOthersByMatch((prev) => ({
+    if (!uid) return;
+    setOthersByMatch((prev) => ({
       ...prev,
       [matchId]: {
         loading: true,
@@ -186,19 +239,32 @@ export default function MatchesPage() {
       },
     }));
     try {
-      const q = query(collectionGroup(firestore, "picks"), where("matchId", "==", matchId), limit(120));
-      const snap = await getDocs(q);
-      const rows: Array<{ ownerUid: string; home: number; away: number }> = [];
-      for (const d of snap.docs) {
-        const ownerUid = d.ref.parent.parent?.id;
-        if (!ownerUid) continue;
-        const data = d.data() as { prediction?: { home?: unknown; away?: unknown } };
-        const home = Number(data?.prediction?.home);
-        const away = Number(data?.prediction?.away);
-        if (!Number.isFinite(home) || !Number.isFinite(away)) continue;
-        rows.push({ ownerUid, home, away });
-      }
-      rows.sort((a, b) => a.ownerUid.localeCompare(b.ownerUid));
+      const targets: LeaguePeer[] = [{ peerUid: uid, displayName: null }, ...leaguePeers];
+      const rows: Array<{ ownerUid: string; displayName: string | null; home: number; away: number }> = [];
+
+      await Promise.all(
+        targets.map(async (peer) => {
+          const pickSnap = await getDoc(doc(firestore, "users", peer.peerUid, "picks", matchId));
+          if (!pickSnap.exists()) return;
+          const data = pickSnap.data() as { prediction?: { home?: unknown; away?: unknown } };
+          const home = Number(data?.prediction?.home);
+          const away = Number(data?.prediction?.away);
+          if (!Number.isFinite(home) || !Number.isFinite(away)) return;
+          rows.push({
+            ownerUid: peer.peerUid,
+            displayName: peer.displayName,
+            home,
+            away,
+          });
+        })
+      );
+
+      rows.sort((a, b) =>
+        userListLabel({ uid: a.ownerUid, displayName: a.displayName }, uid).localeCompare(
+          userListLabel({ uid: b.ownerUid, displayName: b.displayName }, uid),
+          "es"
+        )
+      );
       setOthersByMatch((prev) => ({ ...prev, [matchId]: { loading: false, fetched: true, rows } }));
     } catch (e) {
       setOthersByMatch((prev) => ({
@@ -307,8 +373,8 @@ export default function MatchesPage() {
         <div className="text-xs font-black uppercase tracking-[0.25em] text-[#3c0007]">Match Center</div>
         <h1 className="text-3xl font-black italic tracking-tighter text-slate-900 sm:text-4xl">Scores &amp; Results</h1>
         <p className="text-sm text-slate-700">
-          Tus picks se cierran automáticamente antes del kickoff (según la matriz master). Cuando empiece el partido, podrás
-          ver los pronósticos de la comunidad en cada encuentro.
+          Tus picks se cierran automáticamente antes del kickoff (según la matriz master). Tras el kickoff podrás ver los
+          pronósticos de quienes comparten liga contigo (no de toda la plataforma).
         </p>
       </header>
 
@@ -512,7 +578,7 @@ export default function MatchesPage() {
                                 className="flex w-full items-center justify-between rounded-xl bg-white px-4 py-3 text-left text-xs font-bold uppercase tracking-widest text-[#3c0007] transition-colors duration-200 ease-out hover:bg-[#ffdad9]/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3c0007]/20"
                                 aria-expanded={Boolean(othersOpen[m.id])}
                               >
-                                <span>Pronósticos de la comunidad</span>
+                                <span>Pronósticos de tus ligas</span>
                                 <span className="text-[10px] font-black text-slate-500">{othersOpen[m.id] ? "Ocultar" : "Ver"}</span>
                               </button>
                               {othersOpen[m.id] ? (
@@ -522,7 +588,11 @@ export default function MatchesPage() {
                                   ) : othersByMatch[m.id]?.error ? (
                                     <div className="text-xs font-medium text-[#93000a]">{othersByMatch[m.id]?.error}</div>
                                   ) : (othersByMatch[m.id]?.rows?.length ?? 0) === 0 ? (
-                                    <div className="text-xs font-medium text-slate-500">Aún no hay pronósticos guardados para este partido.</div>
+                                    <div className="text-xs font-medium text-slate-500">
+                                      {leaguePeers.length === 0
+                                        ? "Únete a una liga para ver pronósticos de otros participantes tras el kickoff."
+                                        : "Aún no hay pronósticos guardados de tus compañeros de liga para este partido."}
+                                    </div>
                                   ) : (
                                     <ul className="max-h-52 space-y-2 overflow-y-auto pr-1">
                                       {(othersByMatch[m.id]?.rows ?? []).map((row) => (
@@ -530,12 +600,8 @@ export default function MatchesPage() {
                                           key={row.ownerUid}
                                           className="flex items-center justify-between gap-3 rounded-lg bg-[#f9f9f9] px-3 py-2 text-sm"
                                         >
-                                          <span className="min-w-0 truncate font-semibold text-slate-800">
-                                            {row.ownerUid === uid ? (
-                                              <span className="text-[#096c4b]">Tú</span>
-                                            ) : (
-                                              <span title={row.ownerUid}>{shortParticipantLabel(row.ownerUid)}</span>
-                                            )}
+                                          <span className="min-w-0 truncate font-semibold text-slate-800" title={row.ownerUid}>
+                                            {userListLabel({ uid: row.ownerUid, displayName: row.displayName }, uid)}
                                           </span>
                                           <span className="shrink-0 font-black tabular-nums text-[#3c0007]">
                                             {row.home} - {row.away}

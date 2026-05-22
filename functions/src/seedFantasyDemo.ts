@@ -23,6 +23,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import { Timestamp, getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 
+import { linkMemberToLeaguePeers } from "./leaguePeers.js";
 import { SEED_MATCHDAYS } from "./seedData.js";
 import { firestorePaths } from "./firestorePaths.js";
 
@@ -258,6 +259,10 @@ async function main() {
   }
 
   await batch.commit();
+
+  for (const u of bots) {
+    await linkMemberToLeaguePeers({ leagueId, uid: u.uid, displayName: u.displayName });
+  }
 
   let pickWrites = 0;
   for (let bi = 0; bi < bots.length; bi += 1) {

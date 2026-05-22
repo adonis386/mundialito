@@ -7,6 +7,7 @@ import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions";
 
 import { TOURNAMENT_ID, firestorePaths } from "./firestorePaths.js";
+import { linkMemberToLeaguePeers, rebuildAllLeaguePeersForUser, unlinkLeaguePeers } from "./leaguePeers.js";
 import { scoreMatch, type ScoringConfig, type SoccerScore } from "./scoring.js";
 import { SEED_MATCHDAYS, toTimestampUtc } from "./seedData.js";
 
@@ -389,10 +390,13 @@ export const deleteLeague = onCall(async (req) => {
   if (!leagueSnap.exists) throw new HttpsError("not-found", "Liga no encontrada.");
 
   const membersSnap = await db.collection(`${firestorePaths.leagueDoc(id)}/members`).get();
-  for (const memberDoc of membersSnap.docs) {
-    const memberUid = String((memberDoc.data() as { uid?: string })?.uid ?? memberDoc.id);
+  const memberUids = membersSnap.docs.map((memberDoc) =>
+    String((memberDoc.data() as { uid?: string })?.uid ?? memberDoc.id)
+  );
+  for (const memberUid of memberUids) {
     await db.doc(`users/${memberUid}/leagueMemberships/${id}`).delete().catch(() => undefined);
   }
+  await unlinkLeaguePeers(id, memberUids);
 
   await deleteQueryBatch(db.collection(`${firestorePaths.leagueDoc(id)}/members`));
   await deleteQueryBatch(db.collection(`${firestorePaths.leagueDoc(id)}/stats`));
@@ -521,7 +525,21 @@ export const joinLeague = onCall(async (req) => {
   }
   await syncLeagueMembersCount(result.leagueId);
 
+  await linkMemberToLeaguePeers({
+    leagueId: result.leagueId,
+    uid,
+    displayName,
+  });
+
   return { ok: true, leagueId: result.leagueId, leagueName: result.leagueName, joined: result.isNew };
+});
+
+export const syncMyLeaguePeers = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const uid = req.auth.uid;
+  const displayName = String((req.auth.token as any)?.name ?? "").trim() || null;
+  await rebuildAllLeaguePeersForUser(uid, displayName);
+  return { ok: true };
 });
 
 export const seedMasterMatches = onCall(async (req) => {
