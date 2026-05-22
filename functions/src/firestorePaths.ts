@@ -11,5 +11,7 @@ export const firestorePaths = {
   leagueMemberDoc: (leagueId: string, uid: string) => `leagues/${leagueId}/members/${uid}`,
   leagueStatsDoc: (leagueId: string, uid: string) => `leagues/${leagueId}/stats/${uid}`,
   leagueLeaderboardDoc: (leagueId: string) => `leagues/${leagueId}/leaderboards/current`,
+  /** Reglas y premios visibles para todos los miembros de la liga */
+  leagueOverviewDoc: (leagueId: string) => `leagues/${leagueId}/overview/public`,
 };
 

@@ -115,6 +115,13 @@ service cloud.firestore {
         allow read: if isLeagueMember(leagueId);
         allow write: if false;
       }
+
+      // Reglas y premios: lectura para cualquier miembro; escritura solo owner/admin
+      match /overview/{docId} {
+        allow read: if isLeagueMember(leagueId);
+        allow write: if isLeagueMember(leagueId)
+          && (get(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)).data.role in ["owner", "admin"]);
+      }
     }
   }
 }

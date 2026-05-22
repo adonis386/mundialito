@@ -2,17 +2,40 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, onSnapshot, query } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { firebaseAuth, firestore, functions } from "@/lib/firebase/client";
+import { forFirestore } from "@/lib/firestore/sanitize";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { LeaguePrizePanel } from "@/components/league/LeaguePrizePanel";
+import { ScoringRulesPanel } from "@/components/league/ScoringRulesPanel";
+import type { PrizeTier } from "@/lib/league/prizes";
 import { userListLabel } from "@/lib/userLabel";
+import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/defaultConfig";
+import type { ScoringConfig } from "@/lib/domain/types";
 
-type LeagueDoc = {
+type LeagueSettings = {
+  tournament?: string;
+  matchScope?: string;
+  predictionBy?: string;
+  pickDeadline?: string;
+  sortBy?: string;
+};
+
+type LeaguePublicInfo = {
   name?: string;
-  visibility?: "private" | "public";
   membersCount?: number;
+  entryFee?: number | null;
+  plannedParticipants?: number | null;
+  prizeTiers?: PrizeTier[];
+  prizeDescription?: string | null;
+  scoringRules?: Pick<ScoringConfig, "mode" | "points">;
+  settings?: LeagueSettings;
+};
+
+type LeagueDoc = LeaguePublicInfo & {
+  visibility?: "private" | "public";
   joinCode?: string;
 };
 
@@ -31,13 +54,18 @@ type MemberDoc = {
 
 export default function LeagueDetailPage() {
   const params = useParams<{ leagueId: string }>();
+  const router = useRouter();
   const leagueId = params?.leagueId ?? "";
   const [uid, setUid] = useState<string | null>(null);
   const [league, setLeague] = useState<LeagueDoc | null>(null);
+  const [overview, setOverview] = useState<LeaguePublicInfo | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardDoc | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [members, setMembers] = useState<Array<MemberDoc & { id: string }>>([]);
   const [codeBusy, setCodeBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myLeagueOutside, setMyLeagueOutside] = useState<{ rank: number; pointsTotal: number } | null>(null);
@@ -55,6 +83,13 @@ export default function LeagueDetailPage() {
       leagueRef,
       (snap) => setLeague((snap.data() as LeagueDoc) ?? null),
       (e) => setError(e instanceof Error ? e.message : "Error leyendo liga.")
+    );
+
+    const overviewRef = doc(firestore, "leagues", leagueId, "overview", "public");
+    const unsubOverview = onSnapshot(
+      overviewRef,
+      (snap) => setOverview(snap.exists() ? (snap.data() as LeaguePublicInfo) : null),
+      () => null
     );
 
     const lbRef = doc(firestore, "leagues", leagueId, "leaderboards", "current");
@@ -85,6 +120,7 @@ export default function LeagueDetailPage() {
 
     return () => {
       unsubLeague();
+      unsubOverview();
       unsubLb();
       unsubMembers();
       unsubRole();
@@ -115,6 +151,43 @@ export default function LeagueDetailPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  const title = league?.name ?? "Liga";
+  const canManageLeague = role === "owner" || role === "admin";
+
+  useEffect(() => {
+    if (!canManageLeague || !leagueId || overview || !league) return;
+    void setDoc(
+      doc(firestore, "leagues", leagueId, "overview", "public"),
+      forFirestore({
+        name: league.name,
+        membersCount: league.membersCount,
+        entryFee: league.entryFee ?? null,
+        plannedParticipants: league.plannedParticipants ?? null,
+        prizeTiers: league.prizeTiers ?? [],
+        prizeDescription: league.prizeDescription ?? null,
+        scoringRules: league.scoringRules,
+        settings: league.settings,
+      }),
+      { merge: true }
+    );
+  }, [canManageLeague, leagueId, overview, league]);
+
+  async function confirmDeleteLeague() {
+    if (!leagueId || deleteConfirm !== title) return;
+    setError(null);
+    try {
+      setDeleteBusy(true);
+      const fn = httpsCallable(functions, "deleteLeague");
+      await fn({ leagueId });
+      router.push("/leagues");
+    } catch (e) {
+      const anyErr = e as { message?: string };
+      setError(typeof anyErr?.message === "string" ? anyErr.message : "No se pudo eliminar la liga.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   async function regenerateCode() {
     if (!leagueId) return;
     setError(null);
@@ -130,7 +203,25 @@ export default function LeagueDetailPage() {
     }
   }
 
-  const title = league?.name ?? "Liga";
+  const isParticipant = useMemo(() => {
+    if (!uid) return false;
+    return members.some((m) => m.id === uid) || role != null;
+  }, [uid, members, role]);
+
+  const publicInfo = useMemo<LeaguePublicInfo>(() => {
+    const base = overview ?? league ?? {};
+    return {
+      entryFee: base.entryFee,
+      plannedParticipants: base.plannedParticipants,
+      prizeTiers: base.prizeTiers,
+      prizeDescription: base.prizeDescription,
+      scoringRules: base.scoringRules,
+      settings: base.settings,
+      membersCount: base.membersCount ?? league?.membersCount,
+    };
+  }, [overview, league]);
+
+  const scoringForDisplay = publicInfo.scoringRules ?? DEFAULT_SCORING_CONFIG;
   const entries = useMemo(() => leaderboard?.top ?? [], [leaderboard]);
 
   const myTableEntry = useMemo(() => {
@@ -200,6 +291,70 @@ export default function LeagueDetailPage() {
           {myLeagueOutside.pointsTotal} pts (fuera del top 50 publicado).
         </div>
       ) : null}
+
+      {!uid ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+          <Link href="/login" className="font-semibold text-[#3c0007] underline">
+            Inicia sesión
+          </Link>{" "}
+          para ver las reglas y premios de esta liga.
+        </div>
+      ) : uid && role === null && members.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+          Cargando reglas y premios…
+        </div>
+      ) : !isParticipant ? (
+        <div className="rounded-xl border border-[#ffdad6] bg-[#fff5f5] px-4 py-3 text-sm text-slate-800">
+          Únete a la liga con el código de invitación para ver reglas y premios.{" "}
+          <Link href="/leagues/join" className="font-semibold text-[#3c0007] underline">
+            Unirme con código
+          </Link>
+        </div>
+      ) : (
+        <>
+          <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
+            <div className="bg-gradient-to-br from-[#096c4b] to-[#0b8d62] px-4 py-3">
+              <div className="text-sm font-black italic tracking-tighter text-white">Reglas de la liga</div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">
+                Visible para todos los participantes
+              </div>
+            </div>
+            <div className="flex flex-col gap-4 p-4">
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Torneo</dt>
+                  <dd>{publicInfo.settings?.tournament ?? "Copa Mundial 2026"}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Partidos</dt>
+                  <dd>{publicInfo.settings?.matchScope ?? "Fase de grupos y eliminatoria"}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pronósticos</dt>
+                  <dd>{publicInfo.settings?.predictionBy ?? "Por partido"}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cierre de picks</dt>
+                  <dd>{publicInfo.settings?.pickDeadline ?? "Antes del kickoff oficial de cada partido"}</dd>
+                </div>
+              </dl>
+              <ScoringRulesPanel config={scoringForDisplay} />
+            </div>
+          </section>
+
+          <LeaguePrizePanel
+            leagueId={leagueId}
+            league={{
+              entryFee: publicInfo.entryFee,
+              plannedParticipants: publicInfo.plannedParticipants,
+              prizeTiers: publicInfo.prizeTiers,
+              prizeDescription: publicInfo.prizeDescription,
+              membersCount: publicInfo.membersCount ?? members.length,
+            }}
+            canEdit={canManageLeague}
+          />
+        </>
+      )}
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
         <div className="bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-3">
@@ -312,6 +467,67 @@ export default function LeagueDetailPage() {
           )}
         </div>
       </section>
+
+      {canManageLeague ? (
+        <section className="overflow-hidden rounded-2xl border border-[#ffdad6] bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
+          <div className="bg-[#fff5f5] px-4 py-3">
+            <div className="text-sm font-black italic tracking-tighter text-[#93000a]">Zona de administración</div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-[#93000a]/70">
+              Acciones irreversibles
+            </div>
+          </div>
+          <div className="p-4">
+            {!deleteOpen ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteOpen(true);
+                  setDeleteConfirm("");
+                  setError(null);
+                }}
+                className="rounded-full border border-[#ffb4ab] bg-white px-4 py-2 text-sm font-bold text-[#93000a] hover:bg-[#ffdad6]/40"
+              >
+                Eliminar liga
+              </button>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-slate-800">
+                  Se borrarán miembros, estadísticas y el código de la liga. Escribe{" "}
+                  <span className="font-bold text-[#3c0007]">{title}</span> para confirmar.
+                </p>
+                <input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  className="h-11 rounded-xl bg-slate-50 px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#93000a]/20"
+                  placeholder={title}
+                  autoComplete="off"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={deleteBusy || deleteConfirm !== title}
+                    onClick={() => void confirmDeleteLeague()}
+                    className="rounded-full bg-[#93000a] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {deleteBusy ? "Eliminando…" : "Confirmar eliminación"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleteBusy}
+                    onClick={() => {
+                      setDeleteOpen(false);
+                      setDeleteConfirm("");
+                    }}
+                    className="rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-800"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <Link href="/leagues" className="text-sm font-semibold text-[#3c0007] underline underline-offset-2">
         Volver a ligas

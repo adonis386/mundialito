@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 
-import { FieldPath, FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+import {
+  FieldPath,
+  FieldValue,
+  Timestamp,
+  getFirestore,
+  type Query,
+} from "firebase-admin/firestore";
 import { initializeApp } from "firebase-admin/app";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
@@ -73,14 +79,118 @@ function randomJoinCode(length = 8) {
   return `${out.slice(0, 4)}-${out.slice(4)}`;
 }
 
+type PrizeTierDoc = { place: number; label: string; percent: number };
+
+function normalizePlannedParticipants(raw: unknown): number | null {
+  if (raw == null) return null;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1 || n > 500) {
+    throw new HttpsError("invalid-argument", "Participantes planificados inválido (1-500).");
+  }
+  return n;
+}
+
+function normalizePrizeTiers(raw: unknown): PrizeTierDoc[] {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) throw new HttpsError("invalid-argument", "Premios inválidos.");
+  if (raw.length === 0) return [];
+  const tiers = raw.map((item, i) => {
+    const row = item as Record<string, unknown>;
+    const label = String(row.label ?? "").trim().slice(0, 48);
+    const percent = Number(row.percent);
+    const place = Number(row.place ?? i + 1);
+    if (!label || !Number.isFinite(percent) || percent < 0 || percent > 100) {
+      throw new HttpsError("invalid-argument", "Cada puesto debe tener nombre y % entre 0 y 100.");
+    }
+    return { place: Math.floor(place), label, percent: Math.round(percent * 100) / 100 };
+  });
+  const sum = tiers.reduce((s, t) => s + t.percent, 0);
+  if (Math.abs(sum - 100) > 0.05) {
+    throw new HttpsError("invalid-argument", "Los porcentajes deben sumar 100.");
+  }
+  return tiers.sort((a, b) => a.place - b.place);
+}
+
+async function assertLeagueAdmin(leagueId: string, uid: string) {
+  const memberSnap = await db.doc(firestorePaths.leagueMemberDoc(leagueId, uid)).get();
+  if (!memberSnap.exists) throw new HttpsError("permission-denied", "No eres miembro de esta liga.");
+  const role = String((memberSnap.data() as { role?: string })?.role ?? "member");
+  if (role !== "owner" && role !== "admin") {
+    throw new HttpsError("permission-denied", "Solo owner o admin pueden realizar esta acción.");
+  }
+}
+
+type LeagueOverviewFields = {
+  name?: string;
+  membersCount?: number;
+  entryFee?: number | null;
+  plannedParticipants?: number | null;
+  prizeTiers?: PrizeTierDoc[];
+  prizeDescription?: string | null;
+  scoringRules?: { mode: string; points: Record<string, number> };
+  settings?: Record<string, string>;
+};
+
+function omitUndefinedFields<T extends Record<string, unknown>>(data: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+async function writeLeagueOverview(leagueId: string, fields: LeagueOverviewFields) {
+  await db.doc(firestorePaths.leagueOverviewDoc(leagueId)).set(
+    omitUndefinedFields({
+      ...fields,
+      updatedAt: Timestamp.now(),
+    }),
+    { merge: true }
+  );
+}
+
+async function deleteQueryBatch(query: Query, batchSize = 400) {
+  const snap = await query.limit(batchSize).get();
+  if (snap.empty) return;
+  const batch = db.batch();
+  for (const docSnap of snap.docs) {
+    batch.delete(docSnap.ref);
+  }
+  await batch.commit();
+  if (snap.size >= batchSize) {
+    await deleteQueryBatch(query, batchSize);
+  }
+}
+
 export const createLeague = onCall(async (req) => {
   if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
 
-  const { name } = (req.data ?? {}) as { name?: string };
+  const { name, entryFee, plannedParticipants, prizeTiers } = (req.data ?? {}) as {
+    name?: string;
+    entryFee?: number | null;
+    plannedParticipants?: number | null;
+    prizeTiers?: unknown;
+  };
   const trimmed = (name ?? "").trim();
   if (trimmed.length < 3 || trimmed.length > 80) {
     throw new HttpsError("invalid-argument", "Nombre de liga inválido.");
   }
+
+  let normalizedEntryFee: number | null = null;
+  if (entryFee != null) {
+    const n = Number(entryFee);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+      throw new HttpsError("invalid-argument", "Monto de participación inválido.");
+    }
+    normalizedEntryFee = n === 0 ? null : Math.round(n * 100) / 100;
+  }
+
+  const planned = normalizePlannedParticipants(plannedParticipants);
+  const tiers = normalizePrizeTiers(prizeTiers);
+  if (tiers.length > 0 && (!normalizedEntryFee || normalizedEntryFee <= 0)) {
+    throw new HttpsError("invalid-argument", "Define la cuota por participante si configuras premios por %.");
+  }
+  const scoringConfig = await getScoringConfig();
 
   const ownerUid = req.auth.uid;
   const ownerDisplayName = String((req.auth.token as any)?.name ?? "").trim() || null;
@@ -99,6 +209,20 @@ export const createLeague = onCall(async (req) => {
       joinCodeHash: sha256(joinCode),
       createdAt: now,
       membersCount: 1,
+      entryFee: normalizedEntryFee,
+      plannedParticipants: planned,
+      prizeTiers: tiers,
+      scoringRules: {
+        mode: scoringConfig.mode,
+        points: scoringConfig.points,
+      },
+      settings: {
+        tournament: "Copa Mundial 2026",
+        matchScope: "Fase de grupos y eliminatoria",
+        predictionBy: "Por partido",
+        pickDeadline: "Antes del kickoff oficial de cada partido (matriz master)",
+        sortBy: "Puntos totales",
+      },
     });
 
     const memberRef = db.doc(firestorePaths.leagueMemberDoc(leagueId, ownerUid));
@@ -120,7 +244,102 @@ export const createLeague = onCall(async (req) => {
     });
   });
 
+  await writeLeagueOverview(leagueId, {
+    name: trimmed,
+    membersCount: 1,
+    entryFee: normalizedEntryFee,
+    plannedParticipants: planned,
+    prizeTiers: tiers,
+    scoringRules: {
+      mode: scoringConfig.mode,
+      points: scoringConfig.points,
+    },
+    settings: {
+      tournament: "Copa Mundial 2026",
+      matchScope: "Fase de grupos y eliminatoria",
+      predictionBy: "Por partido",
+      pickDeadline: "Antes del kickoff oficial de cada partido (matriz master)",
+      sortBy: "Puntos totales",
+    },
+  });
+
   return { ok: true, leagueId, joinCode };
+});
+
+export const updateLeaguePrizeSettings = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const { leagueId, entryFee, plannedParticipants, prizeTiers } = (req.data ?? {}) as {
+    leagueId?: string;
+    entryFee?: number | null;
+    plannedParticipants?: number | null;
+    prizeTiers?: unknown;
+  };
+  if (!leagueId?.trim()) throw new HttpsError("invalid-argument", "Falta leagueId.");
+
+  const uid = req.auth.uid;
+  await assertLeagueAdmin(leagueId.trim(), uid);
+
+  let normalizedEntryFee: number | null = null;
+  if (entryFee != null) {
+    const n = Number(entryFee);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+      throw new HttpsError("invalid-argument", "Monto de participación inválido.");
+    }
+    normalizedEntryFee = n === 0 ? null : Math.round(n * 100) / 100;
+  }
+
+  const planned = normalizePlannedParticipants(plannedParticipants);
+  const tiers = normalizePrizeTiers(prizeTiers);
+  if (tiers.length > 0 && (!normalizedEntryFee || normalizedEntryFee <= 0)) {
+    throw new HttpsError("invalid-argument", "Define la cuota por participante si configuras premios por %.");
+  }
+
+  const id = leagueId.trim();
+  await db.doc(firestorePaths.leagueDoc(id)).set(
+    {
+      entryFee: normalizedEntryFee,
+      plannedParticipants: planned,
+      prizeTiers: tiers,
+      prizeSettingsUpdatedAt: Timestamp.now(),
+    },
+    { merge: true }
+  );
+
+  await writeLeagueOverview(id, {
+    entryFee: normalizedEntryFee,
+    plannedParticipants: planned,
+    prizeTiers: tiers,
+  });
+
+  return { ok: true };
+});
+
+export const deleteLeague = onCall(async (req) => {
+  if (!req.auth?.uid) throw new HttpsError("unauthenticated", "Debe iniciar sesión.");
+  const { leagueId } = (req.data ?? {}) as { leagueId?: string };
+  const id = leagueId?.trim();
+  if (!id) throw new HttpsError("invalid-argument", "Falta leagueId.");
+
+  const uid = req.auth.uid;
+  await assertLeagueAdmin(id, uid);
+
+  const leagueRef = db.doc(firestorePaths.leagueDoc(id));
+  const leagueSnap = await leagueRef.get();
+  if (!leagueSnap.exists) throw new HttpsError("not-found", "Liga no encontrada.");
+
+  const membersSnap = await db.collection(`${firestorePaths.leagueDoc(id)}/members`).get();
+  for (const memberDoc of membersSnap.docs) {
+    const memberUid = String((memberDoc.data() as { uid?: string })?.uid ?? memberDoc.id);
+    await db.doc(`users/${memberUid}/leagueMemberships/${id}`).delete().catch(() => undefined);
+  }
+
+  await deleteQueryBatch(db.collection(`${firestorePaths.leagueDoc(id)}/members`));
+  await deleteQueryBatch(db.collection(`${firestorePaths.leagueDoc(id)}/stats`));
+  await deleteQueryBatch(db.collection(`${firestorePaths.leagueDoc(id)}/leaderboards`));
+  await db.doc(firestorePaths.leagueOverviewDoc(id)).delete().catch(() => undefined);
+  await leagueRef.delete();
+
+  return { ok: true };
 });
 
 export const regenerateLeagueJoinCode = onCall(async (req) => {
@@ -223,6 +442,25 @@ export const joinLeague = onCall(async (req) => {
 
   // Ensure the league leaderboard exists/refreshes after joins.
   await recomputeLeagueLeaderboard(result.leagueId, 0);
+
+  const leagueSnap = await leagueRef.get();
+  const overviewRef = db.doc(firestorePaths.leagueOverviewDoc(result.leagueId));
+  const overviewSnap = await overviewRef.get();
+  if (!overviewSnap.exists && leagueSnap.exists) {
+    const d = leagueSnap.data() as LeagueOverviewFields & { name?: string };
+    await writeLeagueOverview(result.leagueId, {
+      name: d.name,
+      membersCount: Number(d.membersCount ?? 0),
+      entryFee: d.entryFee ?? null,
+      plannedParticipants: d.plannedParticipants ?? null,
+      prizeTiers: d.prizeTiers ?? [],
+      prizeDescription: d.prizeDescription ?? null,
+      scoringRules: d.scoringRules,
+      settings: d.settings,
+    });
+  } else if (result.isNew) {
+    await overviewRef.set({ membersCount: FieldValue.increment(1) }, { merge: true });
+  }
 
   return { ok: true, leagueId: result.leagueId, leagueName: result.leagueName, joined: result.isNew };
 });

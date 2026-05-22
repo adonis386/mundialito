@@ -16,6 +16,7 @@ export const firestorePaths = {
     `leagues/${leagueId}/members/${uid}`,
   leagueStatsDoc: (leagueId: string, uid: string) => `leagues/${leagueId}/stats/${uid}`,
   leagueLeaderboardDoc: (leagueId: string) => `leagues/${leagueId}/leaderboards/current`,
+  leagueOverviewDoc: (leagueId: string) => `leagues/${leagueId}/overview/public`,
 
   scoringConfigDoc: () => `scoring/config`,
 
