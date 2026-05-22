@@ -13,6 +13,7 @@ import {
   collectionGroup,
   doc,
   documentId,
+  deleteDoc,
   getDoc,
   getDocs,
   limit,
@@ -151,10 +152,16 @@ export default function MatchesPage() {
       return onSnapshot(q, (snap) => {
         const next: Record<string, { home: string; away: string }> = {};
         for (const d of snap.docs) {
-          const data = d.data() as any;
+          const data = d.data() as { prediction?: { home?: unknown; away?: unknown } };
           next[d.id] = { home: String(data?.prediction?.home ?? ""), away: String(data?.prediction?.away ?? "") };
         }
-        setPicksById((prev) => ({ ...prev, ...next }));
+        setPicksById((prev) => {
+          const merged = { ...prev };
+          for (const id of chunk) {
+            merged[id] = next[id] ?? { home: "", away: "" };
+          }
+          return merged;
+        });
       });
     });
 
@@ -214,6 +221,31 @@ export default function MatchesPage() {
     }
   }
 
+  function pickDraftHasValue(draft: { home: string; away: string }) {
+    return draft.home.trim() !== "" || draft.away.trim() !== "";
+  }
+
+  async function clearPick(matchId: string) {
+    if (!uid) return;
+    const master = masterById[matchId];
+    if (!isPickEditable(master)) {
+      setPickErrorById((s) => ({ ...s, [matchId]: pickLockReason(master) ?? "El pick está cerrado." }));
+      return;
+    }
+    setSavingById((s) => ({ ...s, [matchId]: true }));
+    setPickErrorById((s) => ({ ...s, [matchId]: null }));
+    try {
+      const ref = doc(firestore, "users", uid, "picks", matchId);
+      const existing = await getDoc(ref);
+      if (existing.exists()) await deleteDoc(ref);
+      setPicksById((s) => ({ ...s, [matchId]: { home: "", away: "" } }));
+    } catch (e) {
+      setPickErrorById((s) => ({ ...s, [matchId]: e instanceof Error ? e.message : "Error al limpiar el pick." }));
+    } finally {
+      setSavingById((s) => ({ ...s, [matchId]: false }));
+    }
+  }
+
   async function savePick(matchId: string) {
     if (!uid) return;
     const master = masterById[matchId];
@@ -225,11 +257,26 @@ export default function MatchesPage() {
     setPickErrorById((s) => ({ ...s, [matchId]: null }));
     try {
       const draft = picksById[matchId] ?? { home: "", away: "" };
-      const home = Number.parseInt(draft.home, 10);
-      const away = Number.parseInt(draft.away, 10);
-      if (!Number.isFinite(home) || home < 0 || !Number.isFinite(away) || away < 0) throw new Error("Score inválido.");
+      const homeRaw = draft.home.trim();
+      const awayRaw = draft.away.trim();
 
       const ref = doc(firestore, "users", uid, "picks", matchId);
+
+      if (homeRaw === "" && awayRaw === "") {
+        const existing = await getDoc(ref);
+        if (existing.exists()) await deleteDoc(ref);
+        setPicksById((s) => ({ ...s, [matchId]: { home: "", away: "" } }));
+        return;
+      }
+
+      if (homeRaw === "" || awayRaw === "") {
+        throw new Error("Indica ambos marcadores o usa «Sin pronóstico» para borrar el pick.");
+      }
+
+      const home = Number.parseInt(homeRaw, 10);
+      const away = Number.parseInt(awayRaw, 10);
+      if (!Number.isFinite(home) || home < 0 || !Number.isFinite(away) || away < 0) throw new Error("Score inválido.");
+
       const existing = await getDoc(ref);
       await setDoc(
         ref,
@@ -307,6 +354,7 @@ export default function MatchesPage() {
               const locked = !isPickEditable(master);
               const lockReason = pickLockReason(master);
               const pick = picksById[m.id] ?? { home: "", away: "" };
+              const hasPickDraft = pickDraftHasValue(pick);
               const saving = savingById[m.id];
               const pickErr = pickErrorById[m.id];
               const isFinal = master?.status === "final" && Boolean(master?.score);
@@ -403,10 +451,10 @@ export default function MatchesPage() {
                             <input
                               className="w-full border-0 border-b-4 border-b-[#e2e2e2] bg-transparent py-2 text-center text-3xl font-black italic text-slate-900 outline-none ring-0 placeholder:text-slate-300 focus:border-b-[#3c0007] disabled:text-slate-400"
                               inputMode="numeric"
-                              placeholder="0"
+                              placeholder="—"
                               value={pick.home}
                               onChange={(e) =>
-                                setPicksById((s) => ({ ...s, [m.id]: { home: e.target.value, away: s[m.id]?.away ?? "" } }))
+                                setPicksById((s) => ({ ...s, [m.id]: { home: e.target.value.replace(/\D/g, ""), away: s[m.id]?.away ?? "" } }))
                               }
                               disabled={locked}
                               aria-label="Pick goles local"
@@ -415,24 +463,36 @@ export default function MatchesPage() {
                             <input
                               className="w-full border-0 border-b-4 border-b-[#e2e2e2] bg-transparent py-2 text-center text-3xl font-black italic text-slate-900 outline-none ring-0 placeholder:text-slate-300 focus:border-b-[#3c0007] disabled:text-slate-400"
                               inputMode="numeric"
-                              placeholder="0"
+                              placeholder="—"
                               value={pick.away}
                               onChange={(e) =>
-                                setPicksById((s) => ({ ...s, [m.id]: { home: s[m.id]?.home ?? "", away: e.target.value } }))
+                                setPicksById((s) => ({ ...s, [m.id]: { home: s[m.id]?.home ?? "", away: e.target.value.replace(/\D/g, "") } }))
                               }
                               disabled={locked}
                               aria-label="Pick goles visitante"
                             />
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => savePick(m.id)}
-                            disabled={locked || saving}
-                            className="inline-flex w-full items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-[#3c0007] disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {saving ? "Guardando..." : "Guardar pick"}
-                          </button>
+                          <div className="flex flex-col gap-2 sm:flex-row">
+                            <button
+                              type="button"
+                              onClick={() => savePick(m.id)}
+                              disabled={locked || saving}
+                              className="inline-flex flex-1 items-center justify-center rounded-lg bg-slate-900 px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-white hover:bg-[#3c0007] disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {saving ? "Guardando..." : "Guardar pick"}
+                            </button>
+                            {!locked && hasPickDraft ? (
+                              <button
+                                type="button"
+                                onClick={() => void clearPick(m.id)}
+                                disabled={saving}
+                                className="inline-flex flex-1 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Sin pronóstico
+                              </button>
+                            ) : null}
+                          </div>
 
                           {pickErr ? (
                             <div className="rounded-xl bg-[#ffdad6] px-3 py-2 text-sm text-[#93000a]" role="alert">

@@ -68,13 +68,15 @@ service cloud.firestore {
         // Antes del kickoff: solo el dueño ve su pick. Después del kickoff: cualquier usuario autenticado puede leer (comunidad).
         allow read: if isSelf(uid) || (isSignedIn() && matchKickoffPassed(matchId));
 
-        allow create, update, delete: if isSelf(uid)
+        allow create, update: if isSelf(uid)
           && matchPickEditable(matchId)
           && request.resource.data.matchId == matchId
           && request.resource.data.prediction.home is int
           && request.resource.data.prediction.away is int
           && request.resource.data.prediction.home >= 0
           && request.resource.data.prediction.away >= 0;
+
+        allow delete: if isSelf(uid) && matchPickEditable(matchId);
       }
 
       // Server-only (Functions/Admin SDK) writes
