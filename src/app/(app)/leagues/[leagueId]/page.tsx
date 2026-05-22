@@ -10,7 +10,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { LeaguePrizePanel } from "@/components/league/LeaguePrizePanel";
 import { ScoringRulesPanel } from "@/components/league/ScoringRulesPanel";
+import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
+import { computePrizePool, formatMoney } from "@/lib/league/prizes";
 import type { PrizeTier } from "@/lib/league/prizes";
+import { describeScoringRules } from "@/lib/scoring/scoringRulesText";
 import { userListLabel } from "@/lib/userLabel";
 import { DEFAULT_SCORING_CONFIG } from "@/lib/scoring/defaultConfig";
 import type { ScoringConfig } from "@/lib/domain/types";
@@ -154,13 +157,24 @@ export default function LeagueDetailPage() {
   const title = league?.name ?? "Liga";
   const canManageLeague = role === "owner" || role === "admin";
 
+  /** Miembros reales en Firestore (subcolección); evita overview/league doc desactualizados. */
+  const liveMembersCount = useMemo(
+    () =>
+      Math.max(
+        members.length,
+        Number(league?.membersCount ?? 0),
+        Number(overview?.membersCount ?? 0)
+      ),
+    [members.length, league?.membersCount, overview?.membersCount]
+  );
+
   useEffect(() => {
     if (!canManageLeague || !leagueId || overview || !league) return;
     void setDoc(
       doc(firestore, "leagues", leagueId, "overview", "public"),
       forFirestore({
         name: league.name,
-        membersCount: league.membersCount,
+        membersCount: liveMembersCount,
         entryFee: league.entryFee ?? null,
         plannedParticipants: league.plannedParticipants ?? null,
         prizeTiers: league.prizeTiers ?? [],
@@ -170,7 +184,25 @@ export default function LeagueDetailPage() {
       }),
       { merge: true }
     );
-  }, [canManageLeague, leagueId, overview, league]);
+  }, [canManageLeague, leagueId, overview, league, liveMembersCount]);
+
+  useEffect(() => {
+    if (!canManageLeague || !leagueId || members.length === 0) return;
+    const stored = Number(league?.membersCount ?? overview?.membersCount ?? 0);
+    if (liveMembersCount <= stored) return;
+    void setDoc(
+      doc(firestore, "leagues", leagueId),
+      forFirestore({ membersCount: liveMembersCount }),
+      { merge: true }
+    );
+    if (overview) {
+      void setDoc(
+        doc(firestore, "leagues", leagueId, "overview", "public"),
+        forFirestore({ membersCount: liveMembersCount }),
+        { merge: true }
+      );
+    }
+  }, [canManageLeague, leagueId, members.length, liveMembersCount, league?.membersCount, overview?.membersCount, overview]);
 
   async function confirmDeleteLeague() {
     if (!leagueId || deleteConfirm !== title) return;
@@ -217,11 +249,23 @@ export default function LeagueDetailPage() {
       prizeDescription: base.prizeDescription,
       scoringRules: base.scoringRules,
       settings: base.settings,
-      membersCount: base.membersCount ?? league?.membersCount,
+      membersCount: liveMembersCount,
     };
-  }, [overview, league]);
+  }, [overview, league, liveMembersCount]);
 
   const scoringForDisplay = publicInfo.scoringRules ?? DEFAULT_SCORING_CONFIG;
+  const rulesSummary = useMemo(() => describeScoringRules(scoringForDisplay).resultPlusExactLabel, [scoringForDisplay]);
+  const prizeSummary = useMemo(() => {
+    const tiers = publicInfo.prizeTiers ?? [];
+    if (tiers.length === 0) return "Sin premios en efectivo";
+    const pool = computePrizePool({
+      entryFee: publicInfo.entryFee,
+      membersCount: liveMembersCount,
+      plannedParticipants: publicInfo.plannedParticipants,
+      tiers,
+    });
+    return pool.totalPool > 0 ? `Pozo ${formatMoney(pool.totalPool)}` : `${tiers.length} puestos`;
+  }, [publicInfo, members.length]);
   const entries = useMemo(() => leaderboard?.top ?? [], [leaderboard]);
 
   const myTableEntry = useMemo(() => {
@@ -266,7 +310,7 @@ export default function LeagueDetailPage() {
             {league?.visibility === "public" ? "Pública" : "Privada"}
           </span>
           <span className="rounded-full bg-white/70 px-3 py-1 shadow-sm">
-            Miembros: {Number(league?.membersCount ?? 0)}
+            Miembros: {liveMembersCount}
           </span>
           {!uid ? (
             <span className="rounded-full bg-[#ffdad6] px-3 py-1 font-semibold text-[#93000a]">
@@ -310,108 +354,7 @@ export default function LeagueDetailPage() {
             Unirme con código
           </Link>
         </div>
-      ) : (
-        <>
-          <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-            <div className="bg-gradient-to-br from-[#096c4b] to-[#0b8d62] px-4 py-3">
-              <div className="text-sm font-black italic tracking-tighter text-white">Reglas de la liga</div>
-              <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-                Visible para todos los participantes
-              </div>
-            </div>
-            <div className="flex flex-col gap-4 p-4">
-              <dl className="grid gap-2 text-sm sm:grid-cols-2">
-                <div>
-                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Torneo</dt>
-                  <dd>{publicInfo.settings?.tournament ?? "Copa Mundial 2026"}</dd>
-                </div>
-                <div>
-                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Partidos</dt>
-                  <dd>{publicInfo.settings?.matchScope ?? "Fase de grupos y eliminatoria"}</dd>
-                </div>
-                <div>
-                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pronósticos</dt>
-                  <dd>{publicInfo.settings?.predictionBy ?? "Por partido"}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cierre de picks</dt>
-                  <dd>{publicInfo.settings?.pickDeadline ?? "Antes del kickoff oficial de cada partido"}</dd>
-                </div>
-              </dl>
-              <ScoringRulesPanel config={scoringForDisplay} />
-            </div>
-          </section>
-
-          <LeaguePrizePanel
-            leagueId={leagueId}
-            league={{
-              entryFee: publicInfo.entryFee,
-              plannedParticipants: publicInfo.plannedParticipants,
-              prizeTiers: publicInfo.prizeTiers,
-              prizeDescription: publicInfo.prizeDescription,
-              membersCount: publicInfo.membersCount ?? members.length,
-            }}
-            canEdit={canManageLeague}
-          />
-        </>
-      )}
-
-      <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-        <div className="bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-3">
-          <div className="text-sm font-black italic tracking-tighter text-white">Invitar</div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">Código de unión</div>
-        </div>
-
-        <div className="p-4">
-          {league?.joinCode ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-2xl font-black italic tracking-tight text-[#3c0007]">{league.joinCode}</div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={copyJoinCode}
-                  className="inline-flex cursor-pointer items-center justify-center rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 transition-colors duration-200 ease-out hover:bg-slate-200"
-                >
-                  {copied ? "Copiado" : "Copiar"}
-                </button>
-                <button
-                  type="button"
-                  onClick={shareWhatsApp}
-                  className="inline-flex cursor-pointer items-center justify-center rounded-full bg-[#096c4b] px-4 py-2 text-sm font-bold text-white transition-colors duration-200 ease-out hover:bg-[#0b8d62]"
-                >
-                  WhatsApp
-                </button>
-                {role === "owner" || role === "admin" ? (
-                  <button
-                    type="button"
-                    onClick={regenerateCode}
-                    disabled={codeBusy}
-                    className="inline-flex cursor-pointer items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-900 shadow-sm transition-colors duration-200 ease-out hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {codeBusy ? "..." : "Regenerar"}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <div className="text-sm text-slate-700">Esta liga no tiene código visible (se creó con una versión vieja).</div>
-              {role === "owner" || role === "admin" ? (
-                <button
-                  type="button"
-                  onClick={regenerateCode}
-                  disabled={codeBusy}
-                  className="inline-flex cursor-pointer items-center justify-center rounded-full bg-slate-900 px-4 py-2.5 text-sm font-bold text-white transition-colors duration-200 ease-out hover:bg-[#3c0007] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {codeBusy ? "Generando..." : "Generar código"}
-                </button>
-              ) : (
-                <div className="text-xs text-slate-500">Pídele al owner que regenere el código.</div>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+      ) : null}
 
       <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
         <div className="bg-gradient-to-br from-[#3c0007] to-[#630012] px-4 py-3">
@@ -438,13 +381,111 @@ export default function LeagueDetailPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-        <div className="bg-gradient-to-br from-[#096c4b] to-[#0b8d62] px-4 py-3">
-          <div className="text-sm font-black italic tracking-tighter text-white">Miembros</div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">IDs (UID)</div>
-        </div>
+      {isParticipant ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Información de la liga</p>
 
-        <div className="divide-y divide-slate-200/70">
+          <CollapsibleSection title="Reglas de la liga" subtitle={rulesSummary} accent="green">
+            <dl className="grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Torneo</dt>
+                <dd>{publicInfo.settings?.tournament ?? "Copa Mundial 2026"}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Partidos</dt>
+                <dd>{publicInfo.settings?.matchScope ?? "Fase de grupos y eliminatoria"}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pronósticos</dt>
+                <dd>{publicInfo.settings?.predictionBy ?? "Por partido"}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cierre de picks</dt>
+                <dd>{publicInfo.settings?.pickDeadline ?? "Antes del kickoff oficial de cada partido"}</dd>
+              </div>
+            </dl>
+            <div className="mt-4">
+              <ScoringRulesPanel config={scoringForDisplay} />
+            </div>
+          </CollapsibleSection>
+
+          <CollapsibleSection title="Premios" subtitle={prizeSummary} accent="maroon">
+            <LeaguePrizePanel
+              embedded
+              leagueId={leagueId}
+              league={{
+                entryFee: publicInfo.entryFee,
+                plannedParticipants: publicInfo.plannedParticipants,
+                prizeTiers: publicInfo.prizeTiers,
+                prizeDescription: publicInfo.prizeDescription,
+                membersCount: liveMembersCount,
+              }}
+              canEdit={canManageLeague}
+            />
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            title="Invitar"
+            subtitle={league?.joinCode ? `Código ${league.joinCode}` : "Compartir código"}
+            accent="wine"
+          >
+            {league?.joinCode ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-2xl font-black italic tracking-tight text-[#3c0007]">{league.joinCode}</div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={copyJoinCode}
+                    className="inline-flex items-center justify-center rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 hover:bg-slate-200"
+                  >
+                    {copied ? "Copiado" : "Copiar"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={shareWhatsApp}
+                    className="inline-flex items-center justify-center rounded-full bg-[#096c4b] px-4 py-2 text-sm font-bold text-white hover:bg-[#0b8d62]"
+                  >
+                    WhatsApp
+                  </button>
+                  {canManageLeague ? (
+                    <button
+                      type="button"
+                      onClick={regenerateCode}
+                      disabled={codeBusy}
+                      className="inline-flex items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-bold text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                    >
+                      {codeBusy ? "..." : "Regenerar"}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-sm text-slate-700">Esta liga no tiene código visible.</p>
+                {canManageLeague ? (
+                  <button
+                    type="button"
+                    onClick={regenerateCode}
+                    disabled={codeBusy}
+                    className="inline-flex w-fit items-center justify-center rounded-full bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-[#3c0007] disabled:opacity-60"
+                  >
+                    {codeBusy ? "Generando…" : "Generar código"}
+                  </button>
+                ) : (
+                  <p className="text-xs text-slate-500">Pídele al administrador que genere el código.</p>
+                )}
+              </div>
+            )}
+          </CollapsibleSection>
+        </div>
+      ) : null}
+
+      <CollapsibleSection
+        title="Miembros"
+        subtitle={`${members.length} participante${members.length === 1 ? "" : "s"}`}
+        accent="green"
+      >
+        <div className="divide-y divide-slate-200/70 rounded-xl border border-slate-200/80">
           {members.length === 0 ? (
             <div className="px-4 py-6 text-sm text-slate-700">Aún no hay miembros.</div>
           ) : (
@@ -457,76 +498,66 @@ export default function LeagueDetailPage() {
                     <div className="truncate text-sm font-semibold text-slate-900">{m.displayName || "Miembro"}</div>
                     {m.email ? <div className="truncate text-xs text-slate-500">{m.email}</div> : null}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 sm:mt-0">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                      {String(m.role ?? "member")}
-                    </span>
-                  </div>
+                  <span className="mt-1 w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 sm:mt-0">
+                    {String(m.role ?? "member")}
+                  </span>
                 </div>
               ))
           )}
         </div>
-      </section>
+      </CollapsibleSection>
 
       {canManageLeague ? (
-        <section className="overflow-hidden rounded-2xl border border-[#ffdad6] bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-          <div className="bg-[#fff5f5] px-4 py-3">
-            <div className="text-sm font-black italic tracking-tighter text-[#93000a]">Zona de administración</div>
-            <div className="text-[10px] font-bold uppercase tracking-widest text-[#93000a]/70">
-              Acciones irreversibles
-            </div>
-          </div>
-          <div className="p-4">
-            {!deleteOpen ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteOpen(true);
-                  setDeleteConfirm("");
-                  setError(null);
-                }}
-                className="rounded-full border border-[#ffb4ab] bg-white px-4 py-2 text-sm font-bold text-[#93000a] hover:bg-[#ffdad6]/40"
-              >
-                Eliminar liga
-              </button>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <p className="text-sm text-slate-800">
-                  Se borrarán miembros, estadísticas y el código de la liga. Escribe{" "}
-                  <span className="font-bold text-[#3c0007]">{title}</span> para confirmar.
-                </p>
-                <input
-                  value={deleteConfirm}
-                  onChange={(e) => setDeleteConfirm(e.target.value)}
-                  className="h-11 rounded-xl bg-slate-50 px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#93000a]/20"
-                  placeholder={title}
-                  autoComplete="off"
-                />
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={deleteBusy || deleteConfirm !== title}
-                    onClick={() => void confirmDeleteLeague()}
-                    className="rounded-full bg-[#93000a] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {deleteBusy ? "Eliminando…" : "Confirmar eliminación"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={deleteBusy}
-                    onClick={() => {
-                      setDeleteOpen(false);
-                      setDeleteConfirm("");
-                    }}
-                    className="rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-800"
-                  >
-                    Cancelar
-                  </button>
-                </div>
+        <CollapsibleSection title="Administración" subtitle="Eliminar liga" accent="wine">
+          {!deleteOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteOpen(true);
+                setDeleteConfirm("");
+                setError(null);
+              }}
+              className="rounded-full border border-[#ffb4ab] bg-white px-4 py-2 text-sm font-bold text-[#93000a] hover:bg-[#ffdad6]/40"
+            >
+              Eliminar liga
+            </button>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-slate-800">
+                Se borrarán miembros, estadísticas y el código. Escribe{" "}
+                <span className="font-bold text-[#3c0007]">{title}</span> para confirmar.
+              </p>
+              <input
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                className="h-11 rounded-xl bg-slate-50 px-4 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#93000a]/20"
+                placeholder={title}
+                autoComplete="off"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={deleteBusy || deleteConfirm !== title}
+                  onClick={() => void confirmDeleteLeague()}
+                  className="rounded-full bg-[#93000a] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  {deleteBusy ? "Eliminando…" : "Confirmar eliminación"}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteBusy}
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteConfirm("");
+                  }}
+                  className="rounded-full border border-slate-300 px-4 py-2 text-sm font-bold text-slate-800"
+                >
+                  Cancelar
+                </button>
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+          )}
+        </CollapsibleSection>
       ) : null}
 
       <Link href="/leagues" className="text-sm font-semibold text-[#3c0007] underline underline-offset-2">

@@ -25,9 +25,11 @@ type Props = {
   leagueId: string;
   league: LeaguePrizeData | null;
   canEdit: boolean;
+  /** Sin cabecera de tarjeta (p. ej. dentro de un desplegable) */
+  embedded?: boolean;
 };
 
-export function LeaguePrizePanel({ leagueId, league, canEdit }: Props) {
+export function LeaguePrizePanel({ leagueId, league, canEdit, embedded = false }: Props) {
   const membersCount = Number(league?.membersCount ?? 0);
   const tiers = useMemo(() => {
     const raw = league?.prizeTiers;
@@ -108,12 +110,55 @@ export function LeaguePrizePanel({ leagueId, league, canEdit }: Props) {
     }
   }
 
+  const editHeader = embedded ? (
+    <div className="mb-3 flex items-center justify-between gap-2">
+      <span className="text-sm font-bold text-slate-900">Editar premios</span>
+      <button
+        type="button"
+        onClick={() => setEditing(false)}
+        className="text-xs font-semibold text-slate-600 underline"
+      >
+        Cancelar
+      </button>
+    </div>
+  ) : (
+    <div className="bg-gradient-to-br from-[#630012] to-[#3c0007] px-4 py-3">
+      <div className="text-sm font-black italic tracking-tighter text-white">Editar premios</div>
+    </div>
+  );
+
   if (editing && canEdit) {
+    if (embedded) {
+      return (
+        <div className="flex flex-col gap-4">
+          {editHeader}
+          <PrizeTiersEditor
+            entryFee={parsedFeeEdit}
+            plannedParticipants={parsedPlannedEdit}
+            previewMembersCount={membersCount}
+            tiers={editTiers}
+            onTiersChange={setEditTiers}
+            entryFeeInput={entryFeeInput}
+            plannedInput={plannedInput}
+            onEntryFeeChange={setEntryFeeInput}
+            onPlannedChange={setPlannedInput}
+          />
+          {error ? <div className="text-sm text-[#93000a]">{error}</div> : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void save()}
+            className="w-fit rounded-full bg-[#3c0007] px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+          >
+            {busy ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      );
+    }
+
     return (
       <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-        <div className="bg-gradient-to-br from-[#630012] to-[#3c0007] px-4 py-3">
-          <div className="text-sm font-black italic tracking-tighter text-white">Editar premios</div>
-        </div>
+        {editHeader}
         <div className="p-4">
           <PrizeTiersEditor
             entryFee={parsedFeeEdit}
@@ -149,27 +194,8 @@ export function LeaguePrizePanel({ leagueId, league, canEdit }: Props) {
     );
   }
 
-  return (
-    <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
-      <div className="flex items-start justify-between gap-3 bg-gradient-to-br from-[#630012] to-[#3c0007] px-4 py-3">
-        <div>
-          <div className="text-sm font-black italic tracking-tighter text-white">Premios</div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">
-            Porcentajes del pozo · visible para participantes
-          </div>
-        </div>
-        {canEdit ? (
-          <button
-            type="button"
-            onClick={startEdit}
-            className="shrink-0 rounded-full bg-white/15 px-3 py-1 text-xs font-bold text-white hover:bg-white/25"
-          >
-            Editar
-          </button>
-        ) : null}
-      </div>
-
-      <div className="flex flex-col gap-4 p-4">
+  const body = (
+    <div className={embedded ? "flex flex-col gap-4" : "flex flex-col gap-4 p-4"}>
         {hasLegacyText ? (
           <div className="rounded-xl bg-[#f9f9f9] px-4 py-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Acuerdo (texto)</div>
@@ -235,7 +261,46 @@ export function LeaguePrizePanel({ leagueId, league, canEdit }: Props) {
             </ul>
           </>
         ) : null}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        {canEdit ? (
+          <div className="mb-3 flex justify-end">
+            <button
+              type="button"
+              onClick={startEdit}
+              className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-200"
+            >
+              Editar premios
+            </button>
+          </div>
+        ) : null}
+        {body}
+      </>
+    );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(26,28,28,0.04)]">
+      <div className="flex items-start justify-between gap-3 bg-gradient-to-br from-[#630012] to-[#3c0007] px-4 py-3">
+        <div>
+          <div className="text-sm font-black italic tracking-tighter text-white">Premios</div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-white/70">Porcentajes del pozo</div>
+        </div>
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={startEdit}
+            className="shrink-0 rounded-full bg-white/15 px-3 py-1 text-xs font-bold text-white hover:bg-white/25"
+          >
+            Editar
+          </button>
+        ) : null}
       </div>
+      {body}
     </section>
   );
 }

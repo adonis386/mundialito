@@ -149,6 +149,19 @@ async function writeLeagueOverview(leagueId: string, fields: LeagueOverviewField
   );
 }
 
+/** Fuente de verdad: subcolección members (evita desfase en overview / league doc). */
+async function syncLeagueMembersCount(leagueId: string) {
+  const countSnap = await db.collection(`${firestorePaths.leagueDoc(leagueId)}/members`).count().get();
+  const count = countSnap.data().count;
+  await db.doc(firestorePaths.leagueDoc(leagueId)).set({ membersCount: count }, { merge: true });
+  const overviewRef = db.doc(firestorePaths.leagueOverviewDoc(leagueId));
+  const overviewSnap = await overviewRef.get();
+  if (overviewSnap.exists) {
+    await overviewRef.set({ membersCount: count, updatedAt: Timestamp.now() }, { merge: true });
+  }
+  return count;
+}
+
 async function deleteQueryBatch(query: Query, batchSize = 400) {
   const snap = await query.limit(batchSize).get();
   if (snap.empty) return;
@@ -305,10 +318,12 @@ export const updateLeaguePrizeSettings = onCall(async (req) => {
     { merge: true }
   );
 
+  const membersCount = await syncLeagueMembersCount(id);
   await writeLeagueOverview(id, {
     entryFee: normalizedEntryFee,
     plannedParticipants: planned,
     prizeTiers: tiers,
+    membersCount,
   });
 
   return { ok: true };
@@ -450,7 +465,6 @@ export const joinLeague = onCall(async (req) => {
     const d = leagueSnap.data() as LeagueOverviewFields & { name?: string };
     await writeLeagueOverview(result.leagueId, {
       name: d.name,
-      membersCount: Number(d.membersCount ?? 0),
       entryFee: d.entryFee ?? null,
       plannedParticipants: d.plannedParticipants ?? null,
       prizeTiers: d.prizeTiers ?? [],
@@ -458,9 +472,8 @@ export const joinLeague = onCall(async (req) => {
       scoringRules: d.scoringRules,
       settings: d.settings,
     });
-  } else if (result.isNew) {
-    await overviewRef.set({ membersCount: FieldValue.increment(1) }, { merge: true });
   }
+  await syncLeagueMembersCount(result.leagueId);
 
   return { ok: true, leagueId: result.leagueId, leagueName: result.leagueName, joined: result.isNew };
 });
