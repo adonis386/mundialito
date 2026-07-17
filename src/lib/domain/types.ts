@@ -1,6 +1,6 @@
 export type TournamentId = "2026";
 
-export type MatchStage = "group" | "round16" | "qf" | "sf" | "final";
+export type MatchStage = "group" | "round32" | "round16" | "qf" | "sf" | "third" | "final";
 export type MatchStatus = "scheduled" | "live" | "final";
 
 export type SoccerScore = {

@@ -17,6 +17,7 @@
     "seed:firestore": "npm run build && node lib/seedFirestore.js",
     "seed:fantasy-demo": "npm run build && node lib/seedFantasyDemo.js",
     "seed:demo-final-scores": "npm run build && node lib/seedDemoFinalScores.js",
+    "seed:wc2026-archive": "npm run build && node lib/seedWc2026Archive.js",
     "set-admin": "npm run build && node lib/setAdminClaim.js",
     "test": "vitest run"
   },

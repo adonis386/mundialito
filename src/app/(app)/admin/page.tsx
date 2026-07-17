@@ -18,6 +18,8 @@ import { firebaseAuth, firestore } from "@/lib/firebase/client";
 import { MATCHDAY_1 } from "@/data/matchday1";
 import { MATCHDAY_2 } from "@/data/matchday2";
 import { MATCHDAY_3 } from "@/data/matchday3";
+import { knockoutAdminFixtures } from "@/data/knockoutBracket2026";
+import { GROUP_STAGE_2026, type GroupTeam } from "@/data/groupStage2026";
 import { TeamFlag } from "@/components/TeamFlag";
 import { getGroupIdForMatch } from "@/lib/groups";
 
@@ -64,6 +66,14 @@ function clampNonNegInt(input: string) {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+function teamByNameEs(nameEs: string): GroupTeam | null {
+  for (const g of GROUP_STAGE_2026) {
+    const t = g.teams.find((x) => x.nameEs === nameEs);
+    if (t) return t;
+  }
+  return null;
+}
+
 export default function AdminPage() {
   const allowedEmail = "gonzalezadonis16@gmail.com";
 
@@ -76,11 +86,20 @@ export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [loginBusy, setLoginBusy] = useState(false);
 
-  const [matchday, setMatchday] = useState<"1" | "2" | "3">("1");
+  const [scope, setScope] = useState<"1" | "2" | "3" | "ko">("1");
   const fixtures = useMemo(() => {
-    const base = matchday === "3" ? MATCHDAY_3 : matchday === "2" ? MATCHDAY_2 : MATCHDAY_1;
-    return [...base].sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt));
-  }, [matchday]);
+    if (scope === "ko") {
+      return knockoutAdminFixtures().map((m) => ({
+        id: m.id,
+        home: teamByNameEs(m.home.label) ?? { nameEs: m.home.label, flag: "MX" as const },
+        away: teamByNameEs(m.away.label) ?? { nameEs: m.away.label, flag: "AR" as const },
+        kickoffAt: m.kickoffAt,
+        koLabel: m.roundLabel,
+      }));
+    }
+    const base = scope === "3" ? MATCHDAY_3 : scope === "2" ? MATCHDAY_2 : MATCHDAY_1;
+    return [...base].sort((a, b) => a.kickoffAt.localeCompare(b.kickoffAt)).map((f) => ({ ...f, koLabel: undefined as string | undefined }));
+  }, [scope]);
 
   const [docsById, setDocsById] = useState<Record<string, MasterMatchDoc>>({});
   const [draftById, setDraftById] = useState<Record<string, { status: MatchStatus; home: string; away: string }>>({});
@@ -168,7 +187,7 @@ export default function AdminPage() {
       for (const u of unsubs) u();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isAdmin, matchday]);
+  }, [user, isAdmin, scope]);
 
   async function handleLogin() {
     setAuthError(null);
@@ -229,11 +248,25 @@ export default function AdminPage() {
       const score = status === "final" ? { home: clampNonNegInt(draft.home), away: clampNonNegInt(draft.away) } : undefined;
       const prevVersion = Number(docsById[matchId]?.version ?? 0);
       const nextVersion = Math.max(1, prevVersion + 1);
+      const fx = fixtures.find((f) => f.id === matchId);
 
       const ref = doc(firestore, "tournaments", "2026", "matches", matchId);
       await setDoc(
         ref,
-        { status, ...(score ? { score } : {}), version: nextVersion, updatedAt: serverTimestamp(), updatedBy: user.uid },
+        {
+          status,
+          ...(score ? { score } : {}),
+          version: nextVersion,
+          updatedAt: serverTimestamp(),
+          updatedBy: user.uid,
+          ...(matchId.startsWith("ko-")
+            ? {
+                stage: matchId === "ko-final" ? "final" : matchId === "ko-bronze" ? "third" : "knockout",
+                homeNameEs: fx?.home.nameEs,
+                awayNameEs: fx?.away.nameEs,
+              }
+            : { stage: "group" }),
+        },
         { merge: true }
       );
 
@@ -330,15 +363,16 @@ export default function AdminPage() {
           <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-[0_24px_48px_rgba(26,28,28,0.04)] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <label className="text-sm font-medium text-slate-700">
-                Jornada{" "}
+                Vista{" "}
                 <select
                   className="ml-2 h-10 rounded-full bg-slate-50 px-4 text-xs font-semibold text-slate-900 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-900/10"
-                  value={matchday}
-                  onChange={(e) => setMatchday(e.target.value as "1" | "2" | "3")}
+                  value={scope}
+                  onChange={(e) => setScope(e.target.value as "1" | "2" | "3" | "ko")}
                 >
                   <option value="1">Jornada 1</option>
                   <option value="2">Jornada 2</option>
                   <option value="3">Jornada 3</option>
+                  <option value="ko">Eliminatoria</option>
                 </select>
               </label>
             </div>
@@ -388,7 +422,13 @@ export default function AdminPage() {
                               <div className="text-xs font-medium text-slate-500">{fx.id}</div>
                               <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusTone}`}>{statusLabel}</span>
                             </div>
-                            {groupId ? (
+                            {fx.koLabel ? (
+                              <div className="mt-1">
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                                  {fx.koLabel}
+                                </span>
+                              </div>
+                            ) : groupId ? (
                               <div className="mt-1">
                                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
                                   Grupo {groupId}
